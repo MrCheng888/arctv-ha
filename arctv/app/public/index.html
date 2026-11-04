@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Наталкин Кинозал — сервер</title>
+<style>
+/* страница всегда в тёмной теме */
+:root { --bg: #121417; --card: #1b1e22; --ink: #e9e7e3; --mute: #9aa0a8; --line: #2c3036; --acc: #ef5a4f; --ok: #5bbf84; --field: #15181b; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding: 22px 16px 8px; max-width: 980px; margin: 0 auto; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 22px; margin: 0; font-weight: 650; }
+h1 span { color: var(--acc); }
+.ver { color: var(--mute); font-size: 13px; }
+.who { margin-left: auto; color: var(--mute); font-size: 13px; display: flex; gap: 10px; align-items: center; }
+main { max-width: 980px; margin: 0 auto; padding: 0 16px 40px; display: grid; gap: 24px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px 20px; }
+.divider { height: 1px; background: var(--line); margin: 8px 0; }
+h2 { font-size: 15px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--mute); font-weight: 600; }
+.sub { font-size: 13px; color: var(--mute); margin: 0 0 12px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 18px; }
+.stat b { display: block; font-size: 20px; font-weight: 600; }
+.stat small { color: var(--mute); }
+.err { color: var(--acc); margin-top: 10px; white-space: pre-wrap; }
+.okmsg { color: var(--ok); }
+button { font: inherit; border: 1px solid var(--line); background: var(--field); color: var(--ink); border-radius: 7px; padding: 7px 14px; cursor: pointer; }
+button.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+button.link { border: 0; background: none; padding: 0; color: var(--mute); text-decoration: underline; }
+button:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.row .grow { flex: 1; min-width: 20px; }
+button.danger { background: #ff1a1a; border-color: #ff1a1a; color: #fff; font-weight: 600; }
+td.ic { white-space: nowrap; width: 84px; }
+.drag { cursor: grab; color: var(--mute); padding: 0 6px 0 2px; user-select: none; letter-spacing: -2px; }
+.drag.off { visibility: hidden; }
+tr.dragging { opacity: .5; background: #262a30; }
+td.mv { text-align: right; white-space: nowrap; width: 70px; }
+button.arr { border: 0; background: none; color: var(--mute); padding: 0 5px; font-size: 13px; }
+button.arr:hover { color: var(--ink); }
+button.reset { margin-left: 12px; font-size: 12px; padding: 2px 8px; font-weight: normal; }
+.bin { border: 0; background: none; padding: 0 4px; color: var(--line); vertical-align: -2px; display: inline-block; }
+.bin:hover { color: var(--mute); }
+.bin.on { color: #ff1a1a; }
+.bin.off { color: #ff1a1a; opacity: .5; }
+.bin svg { display: block; }
+tr.hid td { color: var(--mute); }
+tr.hid td:nth-child(3) { text-decoration: line-through; }
+form.grid, .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 20px; }
+label { display: block; font-size: 13px; color: var(--mute); }
+label.wide, .wide { grid-column: 1 / -1; }
+textarea { width: 100%; margin-top: 4px; font: inherit; font-size: 14px; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; resize: vertical; }
+.pltabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 8px; }
+.pltabs:empty { display: none; }
+.pltabs button { font-size: 13px; padding: 4px 12px; }
+.pltabs button.on { background: var(--acc); border-color: var(--acc); color: #fff; }
+.pltabs button.off { opacity: .6; }
+.src-body textarea { margin-top: 0; }
+.src-share { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.src-share > * { max-width: 100%; }
+/* длинные адреса (программа, ссылки) переносятся, чтобы страница не была шире телефона */
+.src-st, .src .hint, .err { overflow-wrap: anywhere; }
+#srcList, .wide { min-width: 0; }
+#saves { overflow-x: auto; }
+main > section { min-width: 0; }
+.src-share .share-url { flex: 1 1 220px; width: auto; min-width: 0; margin-top: 0; font-size: 13px; }
+.src-share .share-url.off { opacity: .5; }
+a.btn { font-size: 14px; border: 1px solid var(--line); background: var(--field); color: var(--ink); border-radius: 7px; padding: 6px 12px; text-decoration: none; white-space: nowrap; }
+a.btn:hover { border-color: var(--mute); }
+.src { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+.src.off { opacity: .6; }
+.src-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.src-head input[type=text] { width: 150px; margin-top: 0; }
+.src-head select { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; }
+.src-head .grow { flex: 1; }
+.src-body { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 8px; }
+.src-body.xt { grid-template-columns: 2fr 1fr 1fr; }
+.src-body input { margin-top: 0; }
+.src-st { font-size: 12px; color: var(--mute); margin-top: 6px; }
+.src-st .e, .src .hint .e { color: var(--acc); }
+.src-n { font-size: 12px; color: var(--mute); }
+input[type=text], input[type=number], input[type=password] { width: 100%; margin-top: 4px; font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; }
+label.chk { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 14px; margin-top: 22px; }
+.hint { font-size: 12px; color: var(--mute); margin-top: 3px; }
+table { width: 100%; border-collapse: collapse; }
+td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--mute); font-weight: 600; }
+td.n { color: var(--mute); width: 48px; font-variant-numeric: tabular-nums; text-align: right; padding-right: 14px; }
+#chans td { padding-top: 7px; padding-bottom: 7px; }
+#chans tr:not(.grp):nth-child(even) td { background: rgba(255, 255, 255, 0.025); }
+#chans tr:not(.grp):hover td { background: rgba(255, 255, 255, 0.05); }
+#chans .grp td { padding-top: 16px; border-bottom: 1px solid var(--mute); }
+#chans .gorig-i { font-weight: normal; font-size: 12px; }
+#favCount { color: var(--acc); font-weight: 700; letter-spacing: 0; }
+h2.fold { cursor: pointer; user-select: none; margin-bottom: 0; }
+h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
+#holSum { text-transform: none; letter-spacing: 0; font-weight: normal; margin-left: 6px; }
+#holSum svg { width: 18px; height: 18px; vertical-align: -4px; }
+#holSum .warn { color: var(--acc); }
+#holBody { margin-top: 10px; }
+.star { border: 0; background: none; padding: 0 4px; font-size: 18px; color: var(--line); }
+.star.on { color: var(--acc); }
+.scroll { max-height: 440px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.filter { width: 100%; max-width: 340px; }
+.muted { color: var(--mute); }
+.grp td { position: sticky; top: 0; background: var(--bg); font-weight: 600; padding-top: 10px; }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--mute); margin-left: 6px; }
+.tv { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 16px; }
+.tv-new { background: #3a2a14; border: 1px solid #8a6326; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+.tv-new button { margin-left: 8px; }
+.tv-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+.tv-head input { max-width: 260px; margin-top: 0; }
+.tv-meta { color: var(--mute); font-size: 13px; }
+.swatches { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.sw { width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; padding: 0; }
+.sw.on { border-color: #fff; }
+#login { max-width: 380px; margin: 60px auto; }
+#login form { display: grid; gap: 12px; }
+.hidden { display: none !important; }
+.grp-list table { width: 100%; border-collapse: collapse; }
+.grp-list td { padding: 4px 6px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.grp-list th { font-weight: normal; color: var(--mute); font-size: 13px; text-align: center; padding: 4px 6px; }
+.grp-list td.k { text-align: center; width: 100px; }
+.grp-list td.hd { width: 24px; }
+.grp-list tr.auto td { color: var(--mute); }
+.grp-list .cnt { color: var(--mute); margin-left: 6px; }
+/* на телефоне таблица групп прокручивается сама, страница — нет */
+.grp-list { overflow-x: auto; }
+.hol { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.hol.off { opacity: .55; }
+.hol .ico { width: 34px; height: 34px; flex: none; }
+.hol .ico svg, .hol-next svg { width: 100%; height: 100%; display: block; }
+.hol select, .hol input[type=date] { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; color-scheme: dark; }
+.hol input[type=number] { width: 80px; margin-top: 0; }
+.hol input.nm { width: 180px; margin-top: 0; flex: 1 1 140px; }
+.hol .del { border: 0; background: none; color: var(--mute); font-size: 18px; padding: 0 6px; }
+.hol .del:hover { color: #ff1a1a; }
+.hol-next { display: inline-flex; gap: 6px; align-items: center; margin: 2px 14px 2px 0; }
+.hol-next span.i { width: 20px; height: 20px; display: inline-block; }
+.grp-list td.gn { min-width: 220px; }
+.grp-list input.gname { width: calc(100% - 50px); margin-top: 0; padding: 4px 8px; font-size: 14px; display: inline-block; }
+.grp-list input.gname::placeholder { color: var(--ink); opacity: .85; }
+.grp-list .gorig { font-size: 11px; color: var(--mute); margin-top: 2px; }
+@media (max-width: 600px) {
+  .grp-list td.k { width: auto; }
+  .grp-list th { font-size: 11px; padding: 4px 2px; }
+  .src-body.xt { grid-template-columns: 1fr; }
+  .src-head input[type=text] { width: 120px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Наталкин <span>Кинозал</span> · сервер</h1>
+  <span class="ver" id="ver"></span>
+  <span class="who hidden" id="who"><span id="whoName"></span><button class="link" id="btnLogout" type="button">Выйти</button></span>
+</header>
+
+<section id="login" class="hidden">
+  <h2 id="loginTitle">Вход</h2>
+  <p class="sub" id="loginSub"></p>
+  <form id="loginForm" autocomplete="on">
+    <label>Логин <input type="text" name="user" autocomplete="username" required></label>
+    <label>Пароль <input type="password" name="pass" autocomplete="current-password" required></label>
+    <div class="row" style="margin-top:4px"><button class="primary" type="submit" id="loginBtn">Войти</button><span id="loginMsg" class="err" style="margin:0"></span></div>
+  </form>
+</section>
+
+<main id="app" class="hidden">
+  <section>
+    <h2>Состояние</h2>
+    <div class="stats" id="stats" style="margin-top:12px"></div>
+    <div class="err" id="lastErr"></div>
+    <div class="row">
+      <button class="primary" id="btnRefresh" type="button">Обновить плейлист и программу сейчас</button>
+      <span id="refreshMsg" class="muted"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Источники</h2>
+    <p class="sub">Только здесь. Телевизоры получают готовый плейлист и программу передач с сервера.</p>
+    <form class="grid" id="srcForm" autocomplete="off">
+      <div class="wide"><label>Плейлисты</label>
+        <div class="hint" style="margin-bottom:6px">Ссылки провайдеров хранятся только на сервере. У каждого плейлиста свои группы, Избранное, программа передач и порядок каналов. Включено несколько — телевизор сначала показывает экран выбора плейлиста; включён один — сразу группы, как раньше. Имя (до 20 символов) — так плейлист называется на телевизоре.</div>
+        <div id="srcList"></div>
+        <div class="row" style="margin-top:8px"><button type="button" id="srcAdd">+ Добавить плейлист</button></div></div>
+      <div class="wide divider"></div>
+      <label>Обновлять каждые, ч <input type="number" name="REFRESH_HOURS" min="1" max="48"><div class="hint">Как часто сервер качает у провайдера.</div></label>
+      <label>Программа назад, ч <input type="number" name="EPG_PAST_HOURS" min="1" max="168"><div class="hint">Для каналов без архива.</div></label>
+      <label>Программа вперёд, ч <input type="number" name="EPG_FUTURE_HOURS" min="6" max="240"></label>
+      <label>Слова закрытых групп <input type="text" name="ADULT_KEYWORDS"><div class="hint">Через запятую, ищутся в названии группы — такие группы закрыты сами.</div></label>
+      <div class="wide divider"></div>
+      <div class="wide"><label id="grpLabel">Группы</label><div class="pltabs"></div>
+        <div class="hint" style="margin-bottom:6px"><b>Основные</b> видны всегда. <b>Расширенные</b> — только в расширенном режиме (Tools на телевизоре, без пароля). <b>Закрытые</b> — скрыты, открываются PIN; группы со словами выше закрыты сами (строка серая). <b>Скрытые</b> — телевизорам не отдаются вовсе, номера остальных сдвигаются. Порядок на телевизоре: основные → расширенные → закрытые. Новые группы от провайдера попадают в основные.</div>
+        <div id="grpList" class="grp-list"></div></div>
+      <div class="row wide"><button class="primary" type="submit">Сохранить</button><span id="srcMsg" class="muted"></span></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Общие для всех телевизоров</h2>
+    <p class="sub">Эти же настройки меняются в Tools на телевизоре. Если изменить и здесь, и там — остаётся то, что изменено позже.</p>
+    <form class="grid" id="comForm" autocomplete="off">
+      <label>Сдвиг программы, мин <input type="number" name="EPG_SHIFT_MIN" step="5" min="-720" max="720">
+        <div class="hint">Передачи в программе идут раньше эфира — плюс, позже — минус.</div></label>
+      <label>PIN закрытых групп <input type="text" name="ADULT_PIN" maxlength="8" inputmode="numeric" pattern="[0-9]{4,8}"><div class="hint">От 4 до 8 цифр.</div></label>
+      <label>Шаг перемотки, с <input type="number" name="ARCHIVE_STEP_SEC" min="30" max="300" step="30"><div class="hint">Нажатие ◀ ▶. От 30 с до 5 мин, шаг 30 с.</div></label>
+      <label>Быстрая перемотка, с <input type="number" name="ARCHIVE_BIG_STEP_SEC" min="60" max="600" step="60"><div class="hint">Удержание ◀ ▶, RW/FF. От 1 до 10 мин, шаг 1 мин.</div></label>
+      <label>Граница эфира, с <input type="number" name="LIVE_EDGE_SEC" min="5" max="300" step="5"><div class="hint">Ближе этого к «сейчас» архив включается как эфир.</div></label>
+      <div class="row wide"><button class="primary" type="submit">Сохранить</button><span id="comMsg" class="muted"></span></div>
+    </form>
+  </section>
+
+  <section>
+    <h2 class="fold" id="holHead"><span class="arr2" id="holArr">▸</span>Праздники<span id="holSum" class="muted"></span></h2>
+    <div id="holBody" class="hidden">
+    <p class="sub">Значок слева вверху на телевизорах (экраны «Плейлисты», «Группы», «Каналы») — весь день, с 0:00 до 24:00. Два праздника в один день — два значка. Телевизоры забирают календарь при следующем запуске приложения или по кнопке 0 и хранят его у себя до следующего изменения.</p>
+    <div id="holList"></div>
+    <div class="row"><button type="button" id="holAdd">+ Добавить праздник</button><span class="grow"></span>
+      <button class="primary" type="button" id="holSave">Сохранить</button><span id="holMsg" class="muted"></span></div>
+    <div id="holNext" class="hint" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Телевизоры</h2>
+    <p class="sub">У каждого телевизора свои настройки плеера и цвет. Их же можно менять в Tools на самом телевизоре. Плейлист сервер отдаёт только разрешённым телевизорам: новый появится здесь с кнопкой «Разрешить».</p>
+    <div id="tvs" class="muted">Пока ни один телевизор не подключался.</div>
+  </section>
+
+  <section>
+    <h2>Каналы и Избранное <span class="muted" id="favCount"></span></h2>
+    <div class="pltabs"></div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="filter" class="filter" placeholder="Поиск канала по названию или номеру">
+      <label class="chk" style="margin-top:0"><input type="checkbox" id="onlyFav"> только Избранное</label>
+    </div>
+    <div class="scroll" style="margin-top:10px"><table><thead><tr><th></th><th>№</th><th>Канал</th><th></th></tr></thead><tbody id="chans"></tbody></table></div>
+    <div class="hint" style="margin-top:8px">⋮⋮ (перетащить) или ▲▼ — порядок каналов в группе, сохраняется сразу (при поиске и «только Избранное» перестановка выключена); «Вернуть исходный порядок» у группы — как у провайдера. ☆ — в Избранное. Корзина — скрыть канал: телевизорам он не отдаётся вовсе, в списке остаётся на своём месте без номера, номера остальных сдвигаются; повторное нажатие возвращает. Целую группу — в «Источниках», «Скрытая» (она уходит в конец списка). Избранное появится на телевизорах в течение 5 минут; скрытие и порядок — при следующем запуске приложения или по кнопке 0.</div>
+  </section>
+
+  <section>
+    <h2>Сохранения <span class="muted" id="savesCount"></span></h2>
+    <div id="saves" class="muted" style="margin-top:8px">Пусто.</div>
+    <div class="hint" style="margin-top:8px">Синяя кнопка в плеере сохраняет место, жёлтая открывает список. Сохранение живёт, пока его место есть в архиве канала.</div>
+  </section>
+
+  <section>
+    <h2>Учётная запись</h2>
+    <form class="grid" id="accForm" autocomplete="off" style="margin-top:12px">
+      <label>Логин <input type="text" name="user" autocomplete="username"></label>
+      <label>Новый пароль <input type="password" name="pass" autocomplete="new-password"></label>
+      <label>Новый пароль ещё раз <input type="password" name="pass2" autocomplete="new-password"></label>
+      <div class="row wide"><button class="primary" type="submit">Сменить логин и пароль</button><span id="accMsg" class="muted"></span></div>
+    </form>
+  </section>
+</main>
+
+<script>
+var $ = function (id) { return document.getElementById(id); };
+var S = null, SET = null;
+var ACCENTS = { crimson: ['Малиновый', '#e0245e'], blue: ['Синий', '#2f80ed'], teal: ['Бирюзовый', '#13a89e'],
+  green: ['Зелёный', '#2fa84f'], orange: ['Оранжевый', '#f2994a'], violet: ['Фиолетовый', '#9b51e0'] };
+
+// Выбранный плейлист: его группы, каналы и Избранное на странице (pl в запросах)
+var PL = 0;
+function api(method, url, body) {
+  if (PL && /^\/api\/(status|settings)$/.test(url)) { url += '?pl=' + PL; }
+  if (PL && body && (url.indexOf('/api/settings') === 0 || url === '/api/fav') && !('pl' in body)) { body.pl = PL; }
+  return fetch(url, { method: method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.status === 401 && j.login) { showLogin(); }
+        if (!r.ok) { throw new Error(j.error || r.status); }
+        return j;
+      });
+    });
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function ago(ms) {
+  if (!ms) { return 'никогда'; }
+  var m = Math.round((Date.now() - ms) / 60000);
+  if (m < 1) { return 'только что'; }
+  if (m < 60) { return m + ' мин назад'; }
+  var h = Math.floor(m / 60);
+  if (h < 48) { return h + ' ч ' + (m % 60) + ' мин назад'; }
+  return Math.floor(h / 24) + ' дн назад';
+}
+function dt(sec) { var d = new Date(sec * 1000); return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); }
+function hm(sec) { return new Date(sec * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); }
+
+// Короткое сообщение рядом с кнопкой: гаснет само через ms
+var msgTimers = {};
+function flash(id, html, ms) {
+  var el = $(id) || document.querySelector('[data-msg="' + id + '"]');
+  if (!el) { return; }
+  el.innerHTML = html;
+  if (msgTimers[id]) { clearTimeout(msgTimers[id]); msgTimers[id] = null; }
+  if (ms) { msgTimers[id] = setTimeout(function () { el.innerHTML = ''; msgTimers[id] = null; }, ms); }
+}
+
+// ----- вход -----
+var SESSION = null;
+function showLogin() {
+  $('app').classList.add('hidden');
+  $('who').classList.add('hidden');
+  $('login').classList.remove('hidden');
+  var first = SESSION && !SESSION.account;
+  $('loginTitle').textContent = first ? 'Создайте логин и пароль' : 'Вход';
+  $('loginSub').textContent = first ? 'Первый запуск: придумайте логин и пароль для этой страницы.' : '';
+  $('loginBtn').textContent = first ? 'Создать и войти' : 'Войти';
+  $('loginForm').elements.pass.setAttribute('autocomplete', first ? 'new-password' : 'current-password');
+}
+function showApp() {
+  $('login').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('who').classList.remove('hidden');
+  $('whoName').textContent = SESSION.user;
+  loadSettings();
+  load();
+  holLoad();
+}
+function start() {
+  api('GET', '/api/session').then(function (s) {
+    SESSION = s;
+    $('ver').textContent = 'версия ' + s.version;
+    if (s.account && s.logged) { showApp(); } else { showLogin(); }
+  });
+}
+$('loginForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var f = e.target, body = { user: f.elements.user.value, pass: f.elements.pass.value };
+  flash('loginMsg', '');
+  api('POST', SESSION.account ? '/api/login' : '/api/account', body).then(function () {
+    f.elements.pass.value = '';
+    start();
+  }).catch(function (err) { flash('loginMsg', esc(err.message)); });
+});
+$('btnLogout').addEventListener('click', function () { api('POST', '/api/logout').then(start); });
+
+// ----- состояние, каналы, сохранения -----
+function renderStatus() {
+  var c = S.cache;
+  var next = c.running ? 'идёт сейчас…' : (c.nextAt ? 'через ' + Math.max(0, Math.round((c.nextAt - Date.now()) / 60000)) + ' мин' : '—');
+  $('stats').innerHTML = [
+    ['Каналов', c.channels, (c.sources.filter(function (x) { return x.on; }).length > 1 ? 'в ' + c.sources.filter(function (x) { return x.on; }).length + ' плейлистах · ' : '') + 'с архивом ' + c.withArchive + ' · плейлист ' + ago(c.playlistAt)],
+    ['Передач в программе', c.epgCount.toLocaleString('ru-RU'), c.epgChannels + ' каналов · ' + ago(c.epgAt)],
+    ['Объём для телевизора', c.epgKb + ' КБ', 'вся программа, сжато'],
+    ['Следующее обновление', next, 'каждые ' + c.refreshHours + ' ч' + (c.lastDurationMs ? ' · последнее ' + Math.round(c.lastDurationMs / 100) / 10 + ' с' : '')]
+  ].map(function (s) { return '<div class="stat"><small>' + s[0] + '</small><b>' + esc(s[1]) + '</b><small>' + esc(s[2]) + '</small></div>'; }).join('');
+  $('lastErr').textContent = c.lastError || '';
+  $('btnRefresh').disabled = c.running;
+  renderTvs();
+  if (!document.querySelector('#srcForm:focus-within')) { renderGroups(); if (SRC.length) { srcRead(); renderSources(); } }
+  renderPlTabs();
+  renderChannels();
+  renderSaves();
+}
+
+// значок корзины
+var BIN = '<svg width="15" height="16" viewBox="0 0 15 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4h12M5.5 4V2.2h4V4M3 4l.8 10h7.4L12 4M6 7v4.5M9 7v4.5"/></svg>';
+function favKey(c) { return (c.id || '') + '|' + c.name; }
+
+// Каналы — как на телевизоре: группы и каналы в своём порядке (или порядке плейлиста), номера сквозные.
+// «Только Избранное» — одним списком по номерам. Перестановка (⋮⋮ и ▲▼) — только в полном списке, без поиска.
+function renderChannels() {
+  var fav = {}, i, q = $('filter').value.trim().toLowerCase(), only = $('onlyFav').checked, rows = [], known = {},
+    groups = [], byName = {}, sortOn = !q && !only, ord = (SET && SET.values.CHANNEL_ORDER) || {};
+  for (i = 0; i < S.favorites.length; i++) { fav[S.favorites[i]] = true; }
+  $('favCount').textContent = '· ' + S.favorites.length;
+  var gn = (SET && SET.values.GROUP_NAMES) || {};
+  S.channels.forEach(function (c) {
+    known[favKey(c)] = true;
+    var g = c.g;
+    if (!byName[g]) { byName[g] = { name: g, list: [] }; groups.push(byName[g]); }
+    byName[g].list.push(c);
+  });
+  groups.forEach(function (g) {
+    var part = g.list.filter(function (c) {
+      if (only && !fav[favKey(c)]) { return false; }
+      return !q || c.name.toLowerCase().indexOf(q) >= 0 || String(c.n) === q;
+    }), hiddenGroup = g.list[0] && g.list[0].k === 'hidden', canSort = sortOn && !hiddenGroup && g.list.length > 1;
+    if (!part.length) { return; }
+    rows.push('<tr class="grp"><td colspan="4">' + esc(gn[g.name] || g.name) + (gn[g.name] ? ' <span class="muted gorig-i">(у провайдера: ' + esc(g.name) + ')</span>' : '') +
+      (hiddenGroup ? ' <span class="muted">· скрытая группа</span>' : '') + ' <span class="muted">· ' + part.length +
+      (part.length < g.list.length && !only ? ' из ' + g.list.length : '') + '</span>' +
+      (canSort && ord[g.name] ? '<button class="reset" type="button" data-reset="' + esc(g.name) + '">Вернуть исходный порядок</button>' : '') + '</td></tr>');
+    part.forEach(function (c) {
+      var k = favKey(c), on = !!fav[k];
+      // корзина: скрыть канал (телевизорам не отдаётся, номера остальных сдвигаются) / вернуть
+      var bin = c.k === 'hidden' ? '<span class="bin off" title="Скрыта вся группа (Источники)">' + BIN + '</span>' :
+        '<button class="bin' + (c.h ? ' on' : '') + '" type="button" data-hide="' + esc(k) + '" title="' + (c.h ? 'Вернуть канал' : 'Скрыть канал') + '">' + BIN + '</button>';
+      rows.push('<tr' + (c.h ? ' class="hid"' : '') + (canSort ? ' data-ck="' + esc(k) + '" data-cg="' + esc(c.g) + '"' : '') + '><td class="ic">' +
+        (canSort ? '<span class="drag" title="Перетащите, чтобы переставить">⋮⋮</span>' : '<span class="drag off">⋮⋮</span>') +
+        // каналы закрытых групп в Избранное не добавляются — без звёздочки
+        (c.cl && !on ? '<span class="muted star-off" title="Закрытая группа — не для Избранного">—</span>' :
+        '<button class="star' + (on ? ' on' : '') + '" data-k="' + esc(k) + '" title="' + (on ? 'Убрать' : 'В Избранное') + '">' + (on ? '★' : '☆') + '</button>') + bin + '</td>' +
+        '<td class="n">' + (c.h ? '' : c.n) + '</td><td>' + esc(c.name) + (c.rec ? '<span class="tag">архив ' + c.rec + ' дн</span>' : '') +
+        '</td><td class="mv">' +
+        (canSort ? '<button class="arr" type="button" data-mv="-1" title="Выше">▲</button><button class="arr" type="button" data-mv="1" title="Ниже">▼</button>' : '') + '</td></tr>');
+    });
+  });
+  var lost = S.favorites.filter(function (k) { return !known[k]; });
+  if (lost.length) {
+    rows.push('<tr class="grp"><td colspan="4">Нет в плейлисте <span class="muted">· ' + lost.length + '</span></td></tr>');
+    lost.forEach(function (k) {
+      rows.push('<tr><td class="ic"><span class="drag off">⋮⋮</span><button class="star on" data-k="' + esc(k) + '" title="Убрать">★</button></td><td class="n">—</td><td>' +
+        esc(k.split('|').slice(1).join('|')) + '</td><td></td></tr>');
+    });
+  }
+  $('chans').innerHTML = rows.join('') || '<tr><td colspan="4" class="muted">Нет каналов</td></tr>';
+}
+
+// ----- перестановка строк: перетаскивание за ⋮⋮ и стрелки ▲▼ -----
+// box — постоянный контейнер, sel — строки, peer(a, b) — можно ли ставить рядом (одна группа), done(строка) — сохранить
+function sortable(box, sel, peer, done) {
+  var drag = null;
+  box.addEventListener('mousedown', function (e) {
+    var h = e.target.closest('.drag'), tr = h && !h.classList.contains('off') && h.closest(sel);
+    if (tr) { tr.draggable = true; }
+  });
+  box.addEventListener('dragstart', function (e) {
+    drag = e.target.closest && e.target.closest(sel);
+    if (!drag) { return; }
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', ''); } catch (x) {}
+    drag.classList.add('dragging');
+  });
+  box.addEventListener('dragover', function (e) {
+    if (!drag) { return; }
+    var tr = e.target.closest(sel);
+    if (!tr || tr === drag || !peer(tr, drag)) { return; }
+    e.preventDefault();
+    var r = tr.getBoundingClientRect();
+    tr.parentNode.insertBefore(drag, e.clientY > r.top + r.height / 2 ? tr.nextSibling : tr);
+  });
+  box.addEventListener('drop', function (e) { if (drag) { e.preventDefault(); } });
+  box.addEventListener('dragend', function () {
+    if (!drag) { return; }
+    var d = drag;
+    drag = null;
+    d.classList.remove('dragging');
+    d.draggable = false;
+    done(d);
+  });
+  box.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-mv]'), tr = b && b.closest(sel), n;
+    if (!tr) { return; }
+    e.preventDefault();
+    n = +b.getAttribute('data-mv') < 0 ? tr.previousElementSibling : tr.nextElementSibling;
+    if (!n || !n.matches(sel) || !peer(n, tr)) { return; }
+    tr.parentNode.insertBefore(tr, n === tr.nextElementSibling ? n.nextSibling : n);
+    done(tr);
+  });
+}
+
+// Каналы: новый порядок группы — сразу на сервер, затем перерисовка (номера)
+sortable($('chans'), 'tr[data-ck]', function (a, b) { return a.getAttribute('data-cg') === b.getAttribute('data-cg'); }, function (tr) {
+  var g = tr.getAttribute('data-cg'), o = JSON.parse(JSON.stringify(SET.values.CHANNEL_ORDER || {}));
+  o[g] = Array.prototype.map.call($('chans').querySelectorAll('tr[data-ck]'), function (r) { return r.getAttribute('data-cg') === g ? r.getAttribute('data-ck') : null; })
+    .filter(function (x) { return x !== null; });
+  api('POST', '/api/settings', { CHANNEL_ORDER: o }).then(function (s) { SET = s; load(); });
+});
+
+function renderSaves() {
+  var list = S.saves || [];
+  $('savesCount').textContent = list.length ? '· ' + list.length : '';
+  if (!list.length) { $('saves').className = 'muted'; $('saves').textContent = 'Пусто.'; return; }
+  $('saves').className = '';
+  $('saves').innerHTML = '<table><tr><th>Место</th><th>Канал</th><th>Передача</th><th></th></tr>' + list.map(function (v) {
+    return '<tr><td style="white-space:nowrap">' + dt(v.pos) + '<div class="hint">сохранено ' + ago(v.at) + '</div></td><td style="min-width:140px">' + (S.cache.sources.length > 1 && S.plNames[v.pl] ? '<span class="muted">' + esc(S.plNames[v.pl]) + ' · </span>' : '') + esc(v.ch) +
+      '</td><td>' + esc(v.t || '—') + (v.ps ? '<div class="hint">' + hm(v.ps) + ' – ' + hm(v.pe) + '</div>' : '') +
+      '</td><td><button data-save="' + esc(v.id) + '">Удалить</button></td></tr>';
+  }).join('') + '</table>';
+}
+
+// ----- телевизоры: имя и свои настройки -----
+var tvDirty = {};   // карточки, которые сейчас правят, не перерисовываем
+function renderTvs() {
+  var box = $('tvs');
+  if (!S.devices.length) { box.className = 'muted'; box.textContent = 'Пока ни один телевизор не подключался.'; return; }
+  if (box.className) { box.className = ''; box.textContent = ''; }   // убрать «Пока ни один…»
+  S.devices.forEach(function (d) {
+    var id = 'tv-' + d.id.replace(/[^\w-]/g, '_'), card = $(id);
+    if (card && tvDirty[d.id]) { return; }
+    var html = (d.allowed ? '' : '<div class="tv-new">Новый телевизор — плейлист ему не отдаётся, пока не разрешите. <button class="primary" type="button" data-act="allow">Разрешить</button></div>') +
+      '<div class="tv-head"><input type="text" data-f="name" placeholder="Имя, например «Гостиная»" value="' + esc(d.name) + '">' +
+      '<span class="tv-meta">' + esc(d.model || 'телевизор') + ' · ' + esc(d.ip || '—') + ' · версия ' + esc(d.ver || '—') + ' · на связи ' + ago(d.seen) + '</span></div>' +
+      '<div class="grid">' +
+      '<label>Буфер плеера, с <input type="number" data-f="START_BUFFER_SEC" min="1" max="30" value="' + d.set.START_BUFFER_SEC + '"><div class="hint">Сколько видео набрать перед стартом.</div></label>' +
+      '<label>Пауза при листании, мс <input type="number" data-f="ZAP_DELAY_MS" min="0" max="2000" step="50" value="' + d.set.ZAP_DELAY_MS + '"><div class="hint">Подключаться к каналу, когда листание остановилось.</div></label>' +
+      '<label>Скрытие списка каналов, с <input type="number" data-f="CHLIST_HIDE_SEC" min="5" max="120" value="' + d.set.CHLIST_HIDE_SEC + '"><div class="hint">Список поверх видео закроется сам.</div></label>' +
+      '<label>Прозрачность окон, % <input type="number" data-f="OVERLAY_OPACITY" min="50" max="95" step="5" value="' + d.set.OVERLAY_OPACITY + '"><div class="hint">Непрозрачность окон; заголовок окна на 10 плотнее.</div></label>' +
+      '<label class="chk"><input type="checkbox" data-f="START_LOW_BITRATE"' + (d.set.START_LOW_BITRATE ? ' checked' : '') + '> Начинать с низкого качества</label>' +
+      '<div><label class="chk"><input type="checkbox" data-c="closedAllowed"' + (d.closedAllowed !== false ? ' checked' : '') + '> Закрытые группы (по PIN)</label><div class="hint">Снять — этот телевизор не получает их каналы вовсе.</div></div>' +
+      '<div><label class="chk"><input type="checkbox" data-c="extAllowed"' + (d.extAllowed !== false ? ' checked' : '') + '> Расширенные группы</label><div class="hint">Снять — этот телевизор не получает их каналы, в Tools нет «Расширенного режима».</div></div>' +
+      '<div class="wide"><label>Цвет оформления</label><div class="swatches">' + Object.keys(ACCENTS).map(function (k) {
+        return '<button type="button" class="sw' + (d.set.ACCENT === k ? ' on' : '') + '" data-acc="' + k + '" title="' + ACCENTS[k][0] + '" style="background:' + ACCENTS[k][1] + '"></button>';
+      }).join('') + '</div></div>' +
+      '<div class="row wide"><button class="primary" type="button" data-act="save">Сохранить</button>' +
+      '<span class="grow"></span>' +
+      (d.allowed ? '<button class="danger" type="button" data-act="deny">Запретить</button>' : '') +
+      '<button class="danger" type="button" data-act="remove">Удалить из списка</button><span class="muted" data-msg="tvmsg-' + esc(d.id) + '"></span></div></div>';
+    if (!card) { card = document.createElement('div'); card.className = 'tv'; card.id = id; card.setAttribute('data-dev', d.id); box.appendChild(card); }
+    card.innerHTML = html;
+  });
+  // убранные телевизоры
+  Array.prototype.slice.call(box.querySelectorAll('.tv')).forEach(function (c) {
+    if (!S.devices.some(function (d) { return d.id === c.getAttribute('data-dev'); })) { c.remove(); }
+  });
+}
+$('tvs').addEventListener('input', function (e) { var c = e.target.closest('.tv'); if (c) { tvDirty[c.getAttribute('data-dev')] = true; } });
+$('tvs').addEventListener('click', function (e) {
+  var c = e.target.closest('.tv'); if (!c) { return; }
+  var dev = c.getAttribute('data-dev'), sw = e.target.closest('.sw'), act = e.target.getAttribute('data-act');
+  if (sw) {
+    Array.prototype.forEach.call(c.querySelectorAll('.sw'), function (b) { b.classList.toggle('on', b === sw); });
+    tvDirty[dev] = true;
+    return;
+  }
+  if (act === 'save') {
+    var set = {}, on = c.querySelector('.sw.on');
+    Array.prototype.forEach.call(c.querySelectorAll('[data-f]'), function (el) {
+      var f = el.getAttribute('data-f');
+      if (f !== 'name') { set[f] = el.type === 'checkbox' ? el.checked : el.value; }
+    });
+    if (on) { set.ACCENT = on.getAttribute('data-acc'); }
+    api('POST', '/api/device', { dev: dev, name: c.querySelector('[data-f="name"]').value, set: set, closedAllowed: c.querySelector('[data-c="closedAllowed"]').checked, extAllowed: c.querySelector('[data-c="extAllowed"]').checked }).then(function (r) {
+      delete tvDirty[dev];
+      S.devices = r.devices; renderTvs();
+      flash('tvmsg-' + dev, '<span class="okmsg">Сохранено</span>', 3000);
+    }).catch(function (err) { flash('tvmsg-' + dev, 'Ошибка: ' + esc(err.message)); });
+  }
+  if (act === 'allow' || (act === 'deny' && confirm('Запретить телевизору получать плейлист? Он продолжит работать по сохранённому, пока его не обновят.'))) {
+    api('POST', '/api/device', { dev: dev, allow: act === 'allow' }).then(function (r) { delete tvDirty[dev]; S.devices = r.devices; renderTvs(); });
+    return;
+  }
+  if (act === 'remove' && confirm('Удалить телевизор из списка? Если он снова подключится, появится заново с настройками по умолчанию.')) {
+    api('POST', '/api/device', { dev: dev, remove: true }).then(function (r) { delete tvDirty[dev]; S.devices = r.devices; renderTvs(); });
+  }
+});
+
+// ----- праздники (0.6.8) -----
+var HOL = [], HOL_ICONS = [];
+var HOL_WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+function holIcon(id) { for (var i = 0; i < HOL_ICONS.length; i++) { if (HOL_ICONS[i].id === id) { return HOL_ICONS[i]; } } return HOL_ICONS[0] || { svg: '', title: '' }; }
+function holLoad() {
+  return api('GET', '/api/holidays/page').then(function (r) {
+    HOL = (r.list || []).map(function (x) { return Object.assign({}, x); });
+    HOL_ICONS = r.icons || [];
+    HOL_NEXT = r.upcoming || [];
+    renderHol(); renderHolNext(HOL_NEXT); holSummary();
+  });
+}
+function holDateValue(h) {
+  if (h.kind === 'once') { return h.d; }
+  if (h.kind === 'year' && h.d) { return new Date().getFullYear() + '-' + h.d; }
+  return '';
+}
+function renderHol() {
+  var box = $('holList');
+  if (!HOL.length) { box.innerHTML = '<span class="muted">Праздников нет — нажмите «Добавить праздник».</span>'; return; }
+  box.innerHTML = HOL.map(function (h, i) {
+    var opts = HOL_ICONS.map(function (ic) { return '<option value="' + ic.id + '"' + (ic.id === h.icon ? ' selected' : '') + '>' + esc(ic.title) + '</option>'; }).join('');
+    var when = h.kind === 'easter'
+      ? '<span class="muted">Пасха</span> <input type="number" data-k="off" value="' + (h.off || 0) + '" min="-100" max="100" title="Дней от Пасхи: 0 — сама Пасха, 49 — Троица, −7 — Вербное воскресенье"> <span class="muted">дн.</span>'
+      : '<input type="date" data-k="d" value="' + esc(holDateValue(h)) + '">';
+    return '<div class="hol' + (h.on ? '' : ' off') + '" data-i="' + i + '"><span class="ico">' + holIcon(h.icon).svg + '</span>' +
+      '<select data-k="icon">' + opts + '</select>' +
+      '<select data-k="kind"><option value="year"' + (h.kind === 'year' ? ' selected' : '') + '>каждый год</option>' +
+      '<option value="once"' + (h.kind === 'once' ? ' selected' : '') + '>один раз</option>' +
+      '<option value="easter"' + (h.kind === 'easter' ? ' selected' : '') + '>от Пасхи</option></select>' + when +
+      '<input type="text" class="nm" data-k="name" placeholder="Подпись (только здесь)" value="' + esc(h.name) + '" maxlength="60">' +
+      '<label class="chk" style="margin-top:0"><input type="checkbox" data-k="on"' + (h.on ? ' checked' : '') + '> вкл</label>' +
+      '<button type="button" class="del" title="Удалить">✕</button></div>';
+  }).join('');
+}
+function renderHolNext(list) {
+  if (!list.length) { $('holNext').innerHTML = ''; return; }
+  $('holNext').innerHTML = 'Ближайшие: ' + list.slice(0, 12).map(function (u) {
+    var h = HOL[u.i] || {}, p = u.d.split('-'), dt = new Date(+p[0], +p[1] - 1, +p[2]);
+    return '<span class="hol-next"><span class="i">' + holIcon(h.icon).svg + '</span>' + p[2] + '.' + p[1] + '.' + p[0] + ' ' + HOL_WD[dt.getDay()] +
+      (h.name ? ' — ' + esc(h.name) : '') + '</span>';
+  }).join('');
+}
+var HOL_DIRTY = false, HOL_NEXT = [];
+function holChanged() { HOL_DIRTY = true; $('holMsg').textContent = 'Есть несохранённые изменения'; holSummary(); }
+// Свёрнутый раздел: сколько праздников и ближайший; несохранённые изменения — напоминание
+function holSummary() {
+  var on = HOL.filter(function (h) { return h.on; }).length, n = HOL_NEXT[0], h = n ? HOL[n.i] : null, txt;
+  txt = HOL.length ? '· ' + HOL.length + ' ' + (HOL.length % 10 === 1 && HOL.length % 100 !== 11 ? 'праздник' : (HOL.length % 10 >= 2 && HOL.length % 10 <= 4 && (HOL.length % 100 < 10 || HOL.length % 100 >= 20) ? 'праздника' : 'праздников')) +
+    (on < HOL.length ? ' (включено ' + on + ')' : '') : '· пусто';
+  if (h) { var p = n.d.split('-'); txt += ' · ближайший ' + holIcon(h.icon).svg + ' ' + p[2] + '.' + p[1] + '.' + p[0]; }
+  if (HOL_DIRTY) { txt += ' · <span class="warn">есть несохранённые изменения</span>'; }
+  $('holSum').innerHTML = ' ' + txt;
+}
+function holFold(open) {
+  $('holBody').classList.toggle('hidden', !open);
+  $('holArr').textContent = open ? '▾' : '▸';
+  try { localStorage.setItem('arctv.holOpen', open ? '1' : ''); } catch (e) {}
+}
+$('holHead').addEventListener('click', function () { holFold($('holBody').classList.contains('hidden')); });
+try { if (localStorage.getItem('arctv.holOpen')) { holFold(true); } } catch (e) {}
+$('holList').addEventListener('change', function (e) {
+  var row = e.target.closest('.hol'), k = e.target.getAttribute('data-k'), h;
+  if (!row || !k) { return; }
+  h = HOL[+row.getAttribute('data-i')];
+  if (k === 'on') { h.on = e.target.checked; }
+  else if (k === 'off') { h.off = Math.round(+e.target.value || 0); }
+  else if (k === 'd') {
+    var v = e.target.value;
+    h.d = h.kind === 'once' ? v : v.slice(5);
+  } else if (k === 'kind') {
+    var old = h.kind, val = holDateValue(h) || new Date().toISOString().slice(0, 10);
+    h.kind = e.target.value;
+    if (h.kind === 'once') { h.d = /^\d{4}-/.test(val) ? val : new Date().getFullYear() + '-' + val; }
+    else if (h.kind === 'year') { h.d = val.slice(5); }
+    else { h.d = ''; h.off = h.off || 0; }
+    if (old !== h.kind) { renderHol(); }
+  } else { h[k] = e.target.value; }
+  if (k === 'icon' || k === 'on') { renderHol(); }
+  holChanged();
+});
+$('holList').addEventListener('input', function (e) {
+  var row = e.target.closest('.hol');
+  if (row && e.target.getAttribute('data-k') === 'name') { HOL[+row.getAttribute('data-i')].name = e.target.value; holChanged(); }
+});
+$('holList').addEventListener('click', function (e) {
+  var row = e.target.closest('.hol');
+  if (row && e.target.classList.contains('del')) { HOL.splice(+row.getAttribute('data-i'), 1); renderHol(); holChanged(); }
+});
+$('holAdd').addEventListener('click', function () {
+  var t = new Date();
+  HOL.push({ kind: 'year', d: ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2), off: 0, icon: 'star', name: '', on: true });
+  renderHol(); holChanged();
+});
+$('holSave').addEventListener('click', function () {
+  var bad = HOL.filter(function (h) { return h.kind !== 'easter' && !h.d; });
+  if (bad.length) { $('holMsg').textContent = 'Укажите дату у всех праздников'; return; }
+  $('holMsg').textContent = 'Сохраняю…';
+  api('POST', '/api/settings', { HOLIDAYS: HOL }).then(function () { return holLoad(); })
+    .then(function () { HOL_DIRTY = false; holSummary(); $('holMsg').innerHTML = '<span class="okmsg">Сохранено</span>'; })
+    .catch(function (e) { $('holMsg').textContent = 'Ошибка: ' + e.message; });
+});
+
+function load() {
+  return api('GET', '/api/status').then(function (s) { S = s; PL = s.pl || 0; renderStatus(); });
+}
+// После «Сохранить» сервер качает заново — обновляем состояние, пока не закончит
+function loadUntilDone(n) {
+  n = n || 0;
+  load().then(function () { if (S.cache.running && n < 100) { setTimeout(function () { loadUntilDone(n + 1); }, 1500); } });
+}
+
+// ----- источники и общие настройки -----
+function fillForm(form, v) {
+  var k, el;
+  for (k in v) {
+    el = form.elements[k];
+    if (!el) { continue; }
+    if (el.type === 'checkbox') { el.checked = !!v[k]; }
+    else if (k === 'EPG_URLS') { el.value = (v[k] || []).join('\n'); }
+    else { el.value = Array.isArray(v[k]) ? v[k].join(', ') : v[k]; }
+  }
+  if (form.id === 'srcForm' && v.SOURCES) { SRC = v.SOURCES.map(function (x) { return Object.assign({}, x); }); renderSources(); }
+}
+
+// ----- плейлисты (источники каналов) -----
+var SRC = [];
+function srcStat(id) {
+  var list = (S && S.cache && S.cache.sources) || [];
+  for (var i = 0; i < list.length; i++) { if (list[i].id === id) { return list[i]; } }
+  return null;
+}
+function renderSources() {
+  var box = $('srcList');
+  if (!SRC.length) { box.innerHTML = '<span class="muted">Нет ни одного плейлиста — нажмите «Добавить плейлист».</span>'; return; }
+  box.innerHTML = SRC.map(function (x, i) {
+    var st = x.id ? srcStat(x.id) : null, xt = x.type === 'xtream', info;
+    if (!x.id) { info = 'Новый — скачается после «Сохранить».'; }
+    else if (!st || (!st.at && !st.error)) { info = x.on ? 'Ещё не скачан.' : 'Выключен.'; }
+    else {
+      info = (st.channels ? st.channels + ' каналов, ' + st.groups + ' групп · скачан ' + ago(st.at) : 'Не скачивался') +
+        (x.on ? '' : ' · выключен') + (st.error ? '<br><span class="e">Ошибка плейлиста: ' + esc(st.error) + '</span>' : '') +
+        '<br>Программа: ' + (st.epgCount ? st.epgCount.toLocaleString('ru-RU') + ' передач, ' + st.epgChannels + ' каналов · ' + ago(st.epgAt) : 'нет') +
+        (st.epgSources && st.epgSources.length ? ' · ' + st.epgSources.map(function (y) {
+          return esc(y.url) + ' — ' + (y.error ? '<span class="e">ошибка: ' + esc(y.error) + '</span>' :
+            (y.skipped ? 'не понадобилась' : y.channels + ' каналов' + (y.byName ? ' (по названию ' + y.byName + ')' : '')));
+        }).join('; ') : '') + (st.epgError && !(st.epgSources || []).some(function (y) { return y.error; }) ? ' · <span class="e">' + esc(st.epgError) + '</span>' : '');
+    }
+    var epgv = Array.isArray(x.epg) ? x.epg.join('\n') : (x.epg || ''), hdr = st && st.epgHeader && st.epgHeader.length ? 'пусто — из плейлиста: ' + st.epgHeader.join(', ') : 'пусто — url-tvg из плейлиста';
+    return '<div class="src' + (x.on ? '' : ' off') + '" data-i="' + i + '"><div class="src-head">' +
+      '<label class="chk" style="margin:0"><input type="checkbox" data-s="on"' + (x.on ? ' checked' : '') + '> включён</label>' +
+      '<input type="text" data-s="name" maxlength="20" placeholder="имя" value="' + esc(x.name) + '">' +
+      '<select data-s="type"><option value="m3u"' + (xt ? '' : ' selected') + '>M3U по ссылке</option><option value="xtream"' + (xt ? ' selected' : '') + '>Xtream Codes</option></select>' +
+      '<span class="src-n">' + (x.id ? '№ ' + x.id : '') + '</span><span class="grow"></span>' +
+      '<button class="arr" type="button" data-sm="-1" title="Выше">▲</button><button class="arr" type="button" data-sm="1" title="Ниже">▼</button>' +
+      '<button type="button" data-sdel="1">Удалить</button></div>' +
+      '<div class="src-body' + (xt ? ' xt' : '') + '"><input type="text" data-s="url" placeholder="' + (xt ? 'адрес сервера: http://host:port' : 'ссылка на плейлист M3U: http://…') + '" value="' + esc(x.url) + '">' +
+      (xt ? '<input type="text" data-s="user" placeholder="логин" value="' + esc(x.user) + '"><input type="password" data-s="pass" placeholder="пароль" value="' + esc(x.pass) + '">' : '') +
+      '</div><div class="src-body"><textarea data-s="epg" rows="' + Math.max(1, epgv.split('\n').length) + '" placeholder="Программа передач (XMLTV): ' + esc(hdr) + '">' + esc(epgv) + '</textarea></div>' +
+      '<div class="src-st">' + info + '</div>' + shareHtml(x, xt) + '</div>';
+  }).join('') + '<div class="hint" style="margin-top:6px">▲▼ — порядок плейлистов на телевизоре. Программа передач — по одному адресу в строке; канал берёт программу из первого адреса, где она для него есть (по tvg-id, если нет — по названию канала); без сервера телевизор берёт только первый адрес. Изменения — после «Сохранить».</div>';
+}
+function fileName(n) { return String(n || 'playlist').replace(/[\\/:*?"<>|]/g, '_'); }
+// Плейлист для других плееров: галочка открытой ссылки, ссылка, скачать файлом (со страницы — всегда)
+function shareHtml(x, xt) {
+  var link = location.protocol + '//' + location.host + '/m3u/' + x.id + '.m3u';
+  return '<div class="src-share"><label class="chk" style="margin:0"><input type="checkbox" data-s="share"' + (x.share ? ' checked' : '') + '> Ссылка для других плееров</label>' +
+    (x.id ? '<input type="text" readonly class="share-url' + (x.share ? '' : ' off') + '" value="' + esc(link) + '"><button type="button" data-copy="1">Копировать</button>' +
+      '<a class="btn" data-dlpl="1" download="' + esc(fileName(x.name)) + '.m3u" href="/m3u/' + x.id + '.m3u?dl=1">Скачать плейлист</a><a class="btn" download="' + esc(fileName(x.name)) + '.xml.gz" href="/m3u/' + x.id + '.xml.gz?dl=1">Скачать программу</a><span class="copied muted"></span>'
+      : '<span class="muted">ссылка появится после «Сохранить»</span>') + '</div><div class="dl-note e hint"></div>' +
+    '<div class="src-share"><label class="chk" style="margin:0"><input type="checkbox" data-s="epgProv"' + (x.epgProv ? ' checked' : '') + '> Программа провайдера</label>' +
+    '<span class="hint" style="margin:0">' + (x.epgProv ? 'в плейлисте (по ссылке и в файле) — ссылка на программу провайдера; <span class="e">в ней видны и закрытые каналы</span>' : 'выключено — программа с этого сервера (только каналы плейлиста); включите для плеера вне дома') + '</span></div>' +
+    '<div class="hint">Для VLC, OTT Navigator, Smart IPTV и т. п.: только основные группы (без расширенных, закрытых и скрытых), без скрытых каналов, номера как на телевизоре; ссылка на программу уже внутри плейлиста. Ссылка без пароля работает в домашней сети, когда галочка включена' + (x.share ? '' : ' — сейчас выключена') + '. Адреса каналов — провайдерские.' +
+    (xt ? ' <span class="e">Внимание: у Xtream Codes в каждом адресе канала стоят логин и пароль провайдера — отдать такой плейлист значит отдать логин и пароль.</span>' : '') + '</div>';
+}
+function srcRead() {
+  Array.prototype.forEach.call($('srcList').querySelectorAll('.src'), function (c) {
+    var x = SRC[+c.getAttribute('data-i')];
+    Array.prototype.forEach.call(c.querySelectorAll('[data-s]'), function (el) {
+      x[el.getAttribute('data-s')] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+  });
+}
+// Скачали плейлист с программой с этого сервера, а ссылка выключена — плеер программу не получит: напоминание
+$('srcList').addEventListener('click', function (e) {
+  var a = e.target.closest('a[data-dlpl]'), c = a && a.closest('.src');
+  if (!c) { return; }
+  var share = c.querySelector('[data-s="share"]').checked, prov = c.querySelector('[data-s="epgProv"]').checked,
+    note = c.querySelector('.dl-note');
+  note.textContent = !share && !prov ? 'Напоминание: в скачанном плейлисте ссылка на программу с этого сервера, а «Ссылка для других плееров» выключена — плеер программу не получит. Включите галочку ссылки (и «Сохранить»), или «Программа провайдера», или загрузите в плеер файл «Скачать программу» (он со временем устаревает).' : '';
+});
+$('srcList').addEventListener('change', function (e) {
+  var f = e.target.getAttribute('data-s');
+  if (f === 'type' || f === 'on' || f === 'share' || f === 'epgProv') { srcRead(); renderSources(); }
+});
+$('srcList').addEventListener('click', function (e) {
+  var b = e.target.closest('button'), c = e.target.closest('.src');
+  if (!b || !c) { return; }
+  if (b.hasAttribute('data-copy')) {
+    e.preventDefault();
+    var inp = c.querySelector('.share-url'), done = function () { c.querySelector('.copied').textContent = 'Скопировано'; setTimeout(function () { c.querySelector('.copied').textContent = ''; }, 2000); };
+    inp.select();
+    // по http (без https) буфер обмена браузера может быть недоступен — тогда старый способ
+    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(inp.value).then(done, function () { try { document.execCommand('copy'); done(); } catch (er) {} }); }
+    else { try { document.execCommand('copy'); done(); } catch (er) {} }
+    return;
+  }
+  e.preventDefault();
+  srcRead();
+  var i = +c.getAttribute('data-i');
+  if (b.hasAttribute('data-sm')) {
+    var j = i + +b.getAttribute('data-sm');
+    if (j < 0 || j >= SRC.length) { return; }
+    var t = SRC[i]; SRC[i] = SRC[j]; SRC[j] = t;
+  } else if (b.hasAttribute('data-sdel')) {
+    if (!confirm('Удалить плейлист «' + (SRC[i].name || 'без имени') + '»? После «Сохранить» вместе с ним удалятся его Избранное, сохранения, настройки групп и порядок каналов. Чтобы только спрятать его от телевизоров, снимите галочку «включён».')) { return; }
+    SRC.splice(i, 1);
+  }
+  renderSources();
+});
+$('srcAdd').addEventListener('click', function () {
+  srcRead();
+  SRC.push({ id: 0, name: 'Плейлист ' + (SRC.length + 1), type: 'm3u', url: '', user: '', pass: '', on: true, epg: [] });
+  renderSources();
+  var last = $('srcList').querySelectorAll('.src'); last = last[last.length - 1];
+  if (last) { last.querySelector('[data-s="name"]').select(); }
+});
+// Переключатель плейлиста (если их несколько): над таблицей групп и над каналами
+function renderPlTabs() {
+  var list = (S && S.cache && S.cache.sources) || [], h = '';
+  if (list.length > 1) {
+    h = list.map(function (x) {
+      return '<button type="button" data-pl="' + x.id + '" class="' + (x.id === PL ? 'on' : '') + (x.on ? '' : ' off') + '">' + esc(x.name) + (x.on ? '' : ' (выкл.)') + '</button>';
+    }).join('');
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.pltabs'), function (el) { el.innerHTML = h; });
+  var cur = list.filter(function (x) { return x.id === PL; })[0];
+  $('grpLabel').textContent = list.length > 1 && cur ? 'Группы плейлиста «' + cur.name + '»' : 'Группы';
+}
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('.pltabs button');
+  if (!b) { return; }
+  e.preventDefault();
+  PL = +b.getAttribute('data-pl');
+  $('filter').value = '';
+  load().then(loadSettings);
+});
+function loadSettings() {
+  api('GET', '/api/settings').then(function (s) { SET = s; if (!PL && s.pl) { PL = s.pl; } fillForm($('srcForm'), s.values); fillForm($('comForm'), s.values); renderGroups(); if (S) { renderChannels(); } });
+}
+
+// Группы плейлиста (в порядке плейлиста): основная / расширенная / закрытая. Закрытые по словам — серые.
+function renderGroups() {
+  if (!S || !SET) { return; }
+  var seen = {}, names = [], cnt = {}, kw = SET.values.ADULT_KEYWORDS || [], man = SET.values.CLOSED_GROUPS || [], ext = SET.values.EXT_GROUPS || [], hid = SET.values.HIDDEN_GROUPS || [];
+  S.channels.forEach(function (c) { cnt[c.g] = (cnt[c.g] || 0) + 1; });
+  names = (S.groups || []).slice();
+  if (!names.length) { $('grpList').innerHTML = '<span class="muted">Плейлист ещё не скачан.</span>'; return; }
+  var gn = SET.values.GROUP_NAMES || {};
+  $('grpList').innerHTML = '<table><tr><th></th><th style="text-align:left">Группа <span class="muted" style="font-weight:normal">(своё имя — в поле)</span></th><th>Основная</th><th>Расширенная</th><th>Закрытая</th><th>Скрытая</th><th></th></tr>' + names.map(function (g, i) {
+    var low = g.toLowerCase(), auto = kw.some(function (w) { return low.indexOf(w) >= 0; }),
+      kind = hid.indexOf(g) >= 0 ? 'hidden' : (auto || man.indexOf(g) >= 0 ? 'closed' : (ext.indexOf(g) >= 0 ? 'ext' : 'main'));
+    return '<tr class="' + (auto ? 'auto' : '') + '" data-g="' + esc(g) + '"><td class="hd"><span class="drag" title="Перетащите, чтобы переставить">⋮⋮</span></td>' +
+      '<td class="gn"><input type="text" class="gname" maxlength="60" value="' + esc(gn[g] || '') + '" placeholder="' + esc(g) + '" title="Своё имя группы; пусто — как у провайдера">' +
+      '<span class="cnt">' + cnt[g] + '</span>' + (gn[g] ? '<div class="gorig">у провайдера: ' + esc(g) + '</div>' : '') + '</td>' +
+      ['main', 'ext', 'closed', 'hidden'].map(function (k) {
+        // закрытую по словам можно только оставить закрытой или скрыть совсем
+        return '<td class="k"><input type="radio" name="gk' + i + '" value="' + k + '"' + (kind === k ? ' checked' : '') + (auto && (k === 'main' || k === 'ext') ? ' disabled' : '') + '></td>';
+      }).join('') + '<td class="mv"><button class="arr" type="button" data-mv="-1" title="Выше">▲</button><button class="arr" type="button" data-mv="1" title="Ниже">▼</button></td></tr>';
+  }).join('') + '</table>' + ((SET.values.GROUP_ORDER || []).length ? '<button class="reset" type="button" id="grpReset" style="margin:8px 0 0 0">Вернуть исходный порядок групп</button>' : '') +
+    '<div class="hint">⋮⋮ или ▲▼ — порядок групп на телевизорах (сохраняется сразу). Основные, расширенные и закрытые всё равно идут блоками, внутри блока — в этом порядке. ' +
+    '<b>Своё имя</b> — впишите в поле (пусто — как у провайдера), затем «Сохранить»; телевизоры и плейлист для других плееров получают группы со своими именами. Имена не должны повторяться.</div>';
+}
+// Порядок групп: перетаскивание и стрелки — сразу на сервер (выбор вида групп при этом не сбрасывается)
+sortable($('grpList'), 'tr[data-g]', function () { return true; }, function () {
+  var list = Array.prototype.map.call($('grpList').querySelectorAll('tr[data-g]'), function (r) { return r.getAttribute('data-g'); });
+  api('POST', '/api/settings', { GROUP_ORDER: list }).then(function (s) {
+    SET.values.GROUP_ORDER = s.values.GROUP_ORDER;
+    api('GET', '/api/status').then(function (st) { S = st; renderGroupsKeep(); renderChannels(); });
+  });
+});
+$('grpList').addEventListener('click', function (e) {
+  if (!e.target.closest('#grpReset')) { return; }
+  e.preventDefault();
+  if (!confirm('Вернуть порядок групп, как у провайдера?')) { return; }
+  api('POST', '/api/settings', { GROUP_ORDER: [] }).then(function (s) {
+    SET.values.GROUP_ORDER = [];
+    api('GET', '/api/status').then(function (st) { S = st; renderGroupsKeep(); renderChannels(); });
+  });
+});
+// Перерисовать таблицу групп, сохранив несохранённый выбор вида групп
+function renderGroupsKeep() {
+  var pick = {}, typed = {};
+  Array.prototype.forEach.call($('grpList').querySelectorAll('tr[data-g]'), function (tr) {
+    var r = tr.querySelector('input:checked'); if (r) { pick[tr.getAttribute('data-g')] = r.value; }
+    typed[tr.getAttribute('data-g')] = tr.querySelector('input.gname').value;
+  });
+  renderGroups();
+  Array.prototype.forEach.call($('grpList').querySelectorAll('tr[data-g]'), function (tr) {
+    var g = tr.getAttribute('data-g'), v = pick[g], r = v && tr.querySelector('input[value="' + v + '"]');
+    if (r && !r.disabled) { r.checked = true; }
+    if (g in typed) { tr.querySelector('input.gname').value = typed[g]; }
+  });
+}
+// Свои имена групп из таблицы: {имя у провайдера: своё}; повторы — список (с учётом имён без переименования)
+function groupNamesRead() {
+  var names = {}, seen = {}, clash = [];
+  Array.prototype.forEach.call($('grpList').querySelectorAll('tr[data-g]'), function (tr) {
+    var g = tr.getAttribute('data-g'), v = tr.querySelector('input.gname').value.replace(/\s+/g, ' ').trim();
+    if (v && v !== g) { names[g] = v; }
+    var n = (v || g).toLowerCase();
+    if (seen[n] && clash.indexOf(v || g) < 0) { clash.push(v || g); }
+    seen[n] = true;
+  });
+  return { names: names, clash: clash };
+}
+
+function bindSettingsForm(form, msgId) {
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var out = {}, i, el;
+    for (i = 0; i < form.elements.length; i++) {
+      el = form.elements[i];
+      if (!el.name || /^gk\d+$/.test(el.name)) { continue; }
+      out[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+    if (form.id === 'srcForm') {
+      srcRead();
+      out.SOURCES = SRC;
+      out.CLOSED_GROUPS = []; out.EXT_GROUPS = []; out.HIDDEN_GROUPS = [];
+      if ($('grpList').querySelector('input.gname')) {
+        var gr = groupNamesRead();
+        if (gr.clash.length) { flash(msgId, '<span class="err" style="margin:0">Одинаковые имена групп: ' + esc(gr.clash.join(', ')) + '</span>'); return; }
+        out.GROUP_NAMES = gr.names;
+      }
+      Array.prototype.forEach.call(form.querySelectorAll('#grpList tr[data-g]'), function (tr) {
+        var r = tr.querySelector('input:checked');
+        if (!r) { return; }
+        if (r.value === 'hidden') { out.HIDDEN_GROUPS.push(tr.getAttribute('data-g')); }
+        if (r.value === 'closed' && !tr.classList.contains('auto')) { out.CLOSED_GROUPS.push(tr.getAttribute('data-g')); }
+        if (r.value === 'ext') { out.EXT_GROUPS.push(tr.getAttribute('data-g')); }
+      });
+    }
+    flash(msgId, 'Сохраняю…');
+    api('POST', '/api/settings', out).then(function (s) {
+      SET = s; fillForm(form, s.values);
+      if (form.id === 'srcForm') { renderGroupsKeep(); }
+      flash(msgId, '<span class="okmsg">Сохранено</span>', 3000);
+      setTimeout(loadUntilDone, 800);
+    }).catch(function (err) { flash(msgId, 'Ошибка: ' + esc(err.message)); });
+  });
+  // начали снова менять — старое «Сохранено» убираем
+  form.addEventListener('input', function () { if (msgTimers[msgId]) { flash(msgId, ''); } });
+}
+bindSettingsForm($('srcForm'), 'srcMsg');
+bindSettingsForm($('comForm'), 'comMsg');
+
+$('accForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var f = e.target, u = f.elements.user.value.trim(), p1 = f.elements.pass.value, p2 = f.elements.pass2.value;
+  if (p1 !== p2) { flash('accMsg', 'Пароли не совпадают'); return; }
+  api('POST', '/api/account', { user: u || SESSION.user, pass: p1 }).then(function () {
+    f.reset();
+    flash('accMsg', '<span class="okmsg">Сохранено</span>', 3000);
+    start();
+  }).catch(function (err) { flash('accMsg', 'Ошибка: ' + esc(err.message)); });
+});
+
+$('btnRefresh').addEventListener('click', function () {
+  $('btnRefresh').disabled = true;
+  flash('refreshMsg', 'Скачиваю у провайдера…');
+  api('POST', '/api/refresh?wait=1').then(function (c) {
+    flash('refreshMsg', c.lastError ? '' : '<span class="okmsg">Готово</span>', 3000);
+    return load();
+  }).catch(function (err) { flash('refreshMsg', 'Ошибка: ' + esc(err.message)); $('btnRefresh').disabled = false; });
+});
+
+$('chans').addEventListener('click', function (e) {
+  var rs = e.target.closest('button[data-reset]');
+  if (rs) {
+    var g = rs.getAttribute('data-reset'), o = JSON.parse(JSON.stringify(SET.values.CHANNEL_ORDER || {}));
+    if (!confirm('Вернуть в группе «' + g + '» порядок каналов, как у провайдера?')) { return; }
+    delete o[g];
+    api('POST', '/api/settings', { CHANNEL_ORDER: o }).then(function (s) { SET = s; load(); });
+    return;
+  }
+  var h = e.target.closest('button[data-hide]');
+  if (h) {
+    // скрыть / показать канал: список скрытых каналов — настройка источников
+    var key = h.getAttribute('data-hide'), list = (SET.values.HIDDEN_CHANNELS || []).slice(), at = list.indexOf(key);
+    if (at >= 0) { list.splice(at, 1); } else { list.push(key); }
+    h.disabled = true;
+    api('POST', '/api/settings', { HIDDEN_CHANNELS: list }).then(function (s) { SET = s; load(); });
+    return;
+  }
+  var b = e.target.closest('button[data-k]');
+  if (!b) { return; }
+  var k = b.getAttribute('data-k'), on = b.classList.contains('on');
+  api('POST', '/api/fav', on ? { remove: [k] } : { add: [k] }).then(function (r) { S.favorites = r.favorites; renderChannels(); });
+});
+
+$('saves').addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-save]');
+  if (!b) { return; }
+  api('POST', '/api/save', { remove: b.getAttribute('data-save') }).then(load);
+});
+
+$('filter').addEventListener('input', renderChannels);
+$('onlyFav').addEventListener('change', renderChannels);
+
+start();
+setInterval(function () { if (!document.hidden && SESSION && SESSION.logged) { load(); } }, 30000);
+</script>
+</body>
+</html>

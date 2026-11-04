@@ -1,0 +1,22 @@
+name: Наталкин Кинозал (ArcTV)
+version: "0.7.5"
+slug: arctv
+description: Домашний сервер IPTV для телевизоров Samsung (Tizen и Orsay)
+url: https://github.com/MrCheng888/arctv-ha
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: true
+ports:
+  8090/tcp: 18090
+ports_description:
+  8090/tcp: Страница сервера и адреса для телевизоров
+webui: http://[HOST]:[PORT:8090]
+watchdog: http://[HOST]:[PORT:8090]/api/ping
+# Данные (настройки, телевизоры, Избранное, сохранения, кэш) — в папке addon_configs/<…>_arctv:
+# видна через аддон Samba и попадает в резервные копии Home Assistant
+map:
+  - type: addon_config
+    read_only: false
