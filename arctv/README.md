@@ -1,27 +1,16 @@
-# ArcTV — сервер
+# ArcTV
 
-Домашний сервер для IPTV-приложения «Наталкин Кинозал» на телевизорах Samsung (Tizen и Orsay):
-скачивает плейлисты и программу передач у провайдера, отдаёт телевизорам готовое, хранит общее
-Избранное и сохранения, настраивается со страницы в браузере.
+Home IPTV server for Samsung Smart TVs (Tizen and Orsay).
 
-## Страница сервера
+- Downloads M3U / Xtream Codes playlists and the XMLTV guide from your provider and serves them
+  ready to the TVs.
+- Shared favorites and saved archive positions for all TVs; per-TV settings; TV access control.
+- Main, extended, PIN-protected and hidden groups, custom names and order.
+- Web page inside Home Assistant (sidebar **ArcTV**, no extra password) or directly on port 18090
+  with its own login.
 
-Внутри Home Assistant — кнопка «Открыть веб-интерфейс» или пункт **ArcTV** в боковом меню (без второго пароля).
-Напрямую — `http://<IP Home Assistant>:18090`, вход по логину и паролю (при первом открытии страница предлагает их создать).
+TVs connect to `http://<Home Assistant host>:18090`. Data is kept in `addon_configs/<id>_arctv`
+and included in Home Assistant backups.
 
-## Данные
-
-Папка `addon_configs/<…>_arctv` (через аддон Samba: `\\<IP HA>\addon_configs\`):
-`settings.json`, `devices.json`, `state.json`, `auth.json`, копии плейлистов и программы.
-Входит в резервные копии Home Assistant.
-
-**Перенос с другого сервера ArcTV:** остановить дополнение, скопировать в эту папку содержимое
-папки `data` прежнего сервера (с заменой), запустить дополнение.
-
-## Порт
-
-Снаружи 18090 (меняется в «Конфигурация» → «Сеть»); тогда поменять и адрес сервера на телевизорах.
-
-## Телевизоры
-
-Адрес сервера в приложении (`js/config.js` → `SERVER_URL`): `http://<IP Home Assistant>:18090`.
+See the **Documentation** tab and the
+[repository README](https://github.com/MrCheng888/arctv-ha) for details.
