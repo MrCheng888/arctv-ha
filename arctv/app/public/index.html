@@ -259,7 +259,7 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
 
 <script>
 var $ = function (id) { return document.getElementById(id); };
-var S = null, SET = null;
+var S = null, SET = null, INGRESS = false;
 var ACCENTS = { crimson: ['Малиновый', '#e0245e'], blue: ['Синий', '#2f80ed'], teal: ['Бирюзовый', '#13a89e'],
   green: ['Зелёный', '#2fa84f'], orange: ['Оранжевый', '#f2994a'], violet: ['Фиолетовый', '#9b51e0'] };
 
@@ -268,7 +268,8 @@ var PL = 0;
 function api(method, url, body) {
   if (PL && /^\/api\/(status|settings)$/.test(url)) { url += '?pl=' + PL; }
   if (PL && body && (url.indexOf('/api/settings') === 0 || url === '/api/fav') && !('pl' in body)) { body.pl = PL; }
-  return fetch(url, { method: method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+  // адреса относительные: страница работает и по прямому адресу, и внутри Home Assistant (Ingress, 0.7.7)
+  return fetch(url.replace(/^\//, ''), { method: method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
     .then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (r.status === 401 && j.login) { showLogin(); }
@@ -324,7 +325,9 @@ function showApp() {
 function start() {
   api('GET', '/api/session').then(function (s) {
     SESSION = s;
+    INGRESS = !!s.ingress;
     $('ver').textContent = 'версия ' + s.version;
+    $('btnLogout').classList.toggle('hidden', INGRESS);   // внутри HA выходить не из чего
     if (s.account && s.logged) { showApp(); } else { showLogin(); }
   });
 }
@@ -706,10 +709,11 @@ function renderSources() {
 function fileName(n) { return String(n || 'playlist').replace(/[\\/:*?"<>|]/g, '_'); }
 // Плейлист для других плееров: галочка открытой ссылки, ссылка, скачать файлом (со страницы — всегда)
 function shareHtml(x, xt) {
-  var link = location.protocol + '//' + location.host + '/m3u/' + x.id + '.m3u';
+  // внутри Home Assistant (Ingress) страница открыта с адреса HA — ссылка для плееров на прямой порт сервера 18090
+  var link = (INGRESS ? 'http://' + location.hostname + ':18090' : location.protocol + '//' + location.host) + '/m3u/' + x.id + '.m3u';
   return '<div class="src-share"><label class="chk" style="margin:0"><input type="checkbox" data-s="share"' + (x.share ? ' checked' : '') + '> Ссылка для других плееров</label>' +
     (x.id ? '<input type="text" readonly class="share-url' + (x.share ? '' : ' off') + '" value="' + esc(link) + '"><button type="button" data-copy="1">Копировать</button>' +
-      '<a class="btn" data-dlpl="1" download="' + esc(fileName(x.name)) + '.m3u" href="/m3u/' + x.id + '.m3u?dl=1">Скачать плейлист</a><a class="btn" download="' + esc(fileName(x.name)) + '.xml.gz" href="/m3u/' + x.id + '.xml.gz?dl=1">Скачать программу</a><span class="copied muted"></span>'
+      '<a class="btn" data-dlpl="1" download="' + esc(fileName(x.name)) + '.m3u" href="m3u/' + x.id + '.m3u?dl=1">Скачать плейлист</a><a class="btn" download="' + esc(fileName(x.name)) + '.xml.gz" href="m3u/' + x.id + '.xml.gz?dl=1">Скачать программу</a><span class="copied muted"></span>'
       : '<span class="muted">ссылка появится после «Сохранить»</span>') + '</div><div class="dl-note e hint"></div>' +
     '<div class="src-share"><label class="chk" style="margin:0"><input type="checkbox" data-s="epgProv"' + (x.epgProv ? ' checked' : '') + '> Программа провайдера</label>' +
     '<span class="hint" style="margin:0">' + (x.epgProv ? 'в плейлисте (по ссылке и в файле) — ссылка на программу провайдера; <span class="e">в ней видны и закрытые каналы</span>' : 'выключено — программа с этого сервера (только каналы плейлиста); включите для плеера вне дома') + '</span></div>' +

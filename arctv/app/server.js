@@ -80,8 +80,17 @@ function sessionCookie(token, hours) {
   return SID + '=' + (token || '') + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + (token ? hours * 3600 : 0);
 }
 
+// Страница внутри Home Assistant (Ingress, 0.7.7): запрос приходит от прокси Supervisor (172.30.32.2)
+// с заголовком X-Ingress-Path — пользователь уже вошёл в HA, свой пароль не спрашиваем.
+// По прямому адресу (порт 18090) — вход по логину и паролю, как раньше.
+const INGRESS_IP = process.env.INGRESS_IP || '172.30.32.2';   // адрес прокси Supervisor (меняется только для проверки)
+function isIngress(req) {
+  const ip = String((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');
+  return ip === INGRESS_IP && !!req.headers['x-ingress-path'];
+}
+
 // Пока логин и пароль не созданы, страница открыта (первый запуск) и предлагает их создать
-function authorized(req) { return !auth.hasAccount() || auth.validSession(cookie(req, SID)); }
+function authorized(req) { return isIngress(req) || !auth.hasAccount() || auth.validSession(cookie(req, SID)); }
 
 function needAuth(res) { send(res, 401, { error: 'Нужно войти', login: true }); }
 
@@ -99,7 +108,7 @@ async function route(req, res) {
   }
 
   if (m === 'GET' && p === '/api/session') {
-    send(res, 200, { account: auth.hasAccount(), logged: authorized(req) && auth.hasAccount(), user: authorized(req) ? auth.user() : '', version: VERSION });
+    send(res, 200, { account: auth.hasAccount(), logged: authorized(req) && auth.hasAccount(), user: authorized(req) ? auth.user() : '', version: VERSION, ingress: isIngress(req) });
     return;
   }
 
