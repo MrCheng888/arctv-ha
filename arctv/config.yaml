@@ -1,5 +1,5 @@
 name: ArcTV
-version: "0.7.5.1"
+version: "0.7.5.2"
 slug: arctv
 description: Домашний сервер IPTV для телевизоров Samsung (Tizen и Orsay)
 url: https://github.com/MrCheng888/arctv-ha
@@ -8,7 +8,7 @@ arch:
   - aarch64
 startup: application
 boot: auto
-# s6-overlay базового образа должен быть процессом 1
+# сервер — сам процесс 1 (без tini и s6)
 init: false
 ports:
   8090/tcp: 18090

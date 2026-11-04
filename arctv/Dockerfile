@@ -1,8 +1,5 @@
-# Базовый образ Home Assistant (Alpine + s6-overlay); его подставляет сам HA
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
-
-RUN apk add --no-cache nodejs
+# Образ задан явно (без BUILD_FROM): сервер — один процесс Node.js, s6-overlay не нужен
+FROM node:24-alpine
 
 WORKDIR /app
 COPY app/ ./

@@ -1,5 +1,8 @@
 # Изменения
 
+## 0.7.5.2
+- Образ `node:24-alpine` задан в Dockerfile явно (Supervisor не передаёт `BUILD_FROM`).
+
 ## 0.7.5.1
 - Сборка на базовом образе Home Assistant (Node.js из Alpine); название — ArcTV.
 
