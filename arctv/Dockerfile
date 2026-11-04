@@ -1,5 +1,8 @@
-# Образ задан прямо здесь: базовый образ Home Assistant (s6-overlay) не нужен — сервер это один процесс Node.js
-FROM node:24-alpine
+# Базовый образ Home Assistant (Alpine + s6-overlay); его подставляет сам HA
+ARG BUILD_FROM
+FROM ${BUILD_FROM}
+
+RUN apk add --no-cache nodejs
 
 WORKDIR /app
 COPY app/ ./
@@ -8,4 +11,4 @@ COPY app/ ./
 ENV NODE_ENV=production DATA_DIR=/config PORT=8090
 
 EXPOSE 8090
-CMD ["node", "server.js"]
+CMD ["node", "/app/server.js"]

@@ -1,5 +1,5 @@
-name: Наталкин Кинозал (ArcTV)
-version: "0.7.5"
+name: ArcTV
+version: "0.7.5.1"
 slug: arctv
 description: Домашний сервер IPTV для телевизоров Samsung (Tizen и Orsay)
 url: https://github.com/MrCheng888/arctv-ha
@@ -8,7 +8,8 @@ arch:
   - aarch64
 startup: application
 boot: auto
-init: true
+# s6-overlay базового образа должен быть процессом 1
+init: false
 ports:
   8090/tcp: 18090
 ports_description:
