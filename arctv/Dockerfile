@@ -1,5 +1,5 @@
-ARG BUILD_FROM=node:24-alpine
-FROM ${BUILD_FROM}
+# Образ задан прямо здесь: базовый образ Home Assistant (s6-overlay) не нужен — сервер это один процесс Node.js
+FROM node:24-alpine
 
 WORKDIR /app
 COPY app/ ./
