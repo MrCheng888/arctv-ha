@@ -9,6 +9,7 @@ const store = require('./store');
 const BASE = process.env.HA_API_URL || 'http://supervisor/core/api';
 const TOKEN = () => process.env.SUPERVISOR_TOKEN || process.env.HA_TOKEN || '';
 const SAFETY_MS = 150000;     // нет «end» от HA — окно закрывается само через 2,5 мин после последнего звонка
+const DISMISS_MS = 10000;     // dismiss: кнопки убрать сразу, окно закрыть через 10 с
 
 // Кадров в секунду (настройка «Домофон» на странице, 0.8.0): 0 — без картинки, обычно 1–2
 function fps() {
@@ -21,7 +22,7 @@ const WAIT_MS = 25000;        // ожидающий запрос телевиз�
 // seq растёт при каждом изменении — телевизор ждёт, пока seq станет не тем, что у него
 const S = { active: false, seq: 1, ringAt: 0, endAt: 0, door: '', reason: '', status: '', statusAt: 0,
   frame: null, frameAt: 0, frameErr: '', lastEvent: '', lastEventAt: 0, haErr: '' };
-let waiters = [], safety = null, frameTimer = null;
+let waiters = [], safety = null, frameTimer = null, dismissTimer = null;
 
 function cfg() { return store.getSettings().DOOR; }
 function enabled() { const c = cfg(); return !!(c && c.on); }
@@ -64,29 +65,42 @@ function stopFrames() { if (frameTimer) { clearTimeout(frameTimer); frameTimer =
 function ring(door) {
   S.active = true; S.ringAt = Date.now(); S.door = String(door || '').slice(0, 40);
   S.status = ''; S.statusAt = 0; S.reason = '';
+  if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
   if (safety) { clearTimeout(safety); }
   safety = setTimeout(() => { log('нет сигнала об окончании вызова — окно закрыто через 2,5 мин'); end('safety'); }, SAFETY_MS);
   startFrames();
   bump();
 }
 
+// Сброс вызова с телефона или домофона: красные кнопки убрать сразу, окно ещё 10 с показывает камеру
+function dismiss(reason) {
+  if (!S.active) { return; }
+  if (dismissTimer) { clearTimeout(dismissTimer); }
+  S.status = 'hangup'; S.statusAt = Date.now();
+  log('dismiss', reason || '');
+  bump();
+  dismissTimer = setTimeout(() => { dismissTimer = null; end(reason || 'dismiss'); }, DISMISS_MS);
+}
+
 function end(reason) {
   if (!S.active) { return; }
   S.active = false; S.endAt = Date.now(); S.reason = String(reason || '').slice(0, 40);
+  if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
   if (safety) { clearTimeout(safety); safety = null; }
   stopFrames();
   bump();
 }
 
-// От HA: {event: 'ring' | 'end', door, reason}. Ответ сразу, обработка — после.
+// От HA: {event: 'ring' | 'dismiss' | 'end', door, reason}. Ответ сразу, обработка — после.
 function event(b) {
   b = b || {};
   const ev = String(b.event || '');
   S.lastEvent = ev; S.lastEventAt = Date.now();
   if (!enabled()) { return { ok: true, ignored: 'Домофон выключен на странице сервера' }; }
   if (ev === 'ring') { setImmediate(() => ring(b.door)); return { ok: true }; }
+  if (ev === 'dismiss') { setImmediate(() => dismiss(b.reason)); return { ok: true }; }
   if (ev === 'end') { setImmediate(() => end(b.reason)); return { ok: true }; }
-  return { ok: false, error: 'event: ring или end' };
+  return { ok: false, error: 'event: ring, dismiss или end' };
 }
 
 // Ключ для POST /doorbell (вписан в адрес rest_command); создаётся сам
