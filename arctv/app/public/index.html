@@ -234,19 +234,22 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
       <label>Таймер вызова <input type="text" name="timer" placeholder="timer.…"><div class="hint">Проверяется при запуске сервера: вызов уже идёт — окно покажется.</div></label>
       <label>Скрипт «Открыть дверь» <input type="text" name="open" placeholder="script.…"></label>
       <label>Скрипт «Сбросить вызов» <input type="text" name="hangup" placeholder="script.…"></label>
+      <label>Кадров в секунду <input type="number" name="fps" min="0" max="10" step="1"><div class="hint">Частота картинки в окне, 0–10: 0 — окно без картинки; обычно 1–2, больше — тяжелее старым ТВ.</div></label>
       <div class="row wide"><button class="primary" type="submit">Сохранить</button>
         <button type="button" id="doorSnap">Снимок с камеры</button>
         <button type="button" id="doorRing">Проверить: звонок</button><button type="button" id="doorEnd">Проверить: конец</button>
         <span id="doorMsg" class="muted"></span></div>
     </form>
     <img id="doorImg" class="hidden" alt="Снимок с камеры" style="max-width:480px;margin-top:10px;border-radius:6px">
-    <h3 style="margin:16px 0 4px;font-size:15px">Для Home Assistant</h3>
-    <div class="hint">1) В <code>configuration.yaml</code> (ключ в адресе — свой у этого сервера, не показывайте его посторонним):</div>
-    <textarea id="doorYaml1" rows="8" readonly></textarea>
-    <div class="hint">2) В автоматизацию «Домофон Entrance», ветка звонка в дверь — действие:</div>
-    <textarea id="doorYaml2" rows="4" readonly></textarea>
-    <div class="hint">3) Новая автоматизация — конец вызова (таймер вернулся в idle):</div>
-    <textarea id="doorYaml3" rows="12" readonly></textarea>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;font-weight:600">Информация: что настроено в Home Assistant</summary>
+      <div class="hint" style="margin-top:8px">Всё ниже уже внесено в HA 12.11.2026; хранится здесь на случай переустановки. 1) Команда для сервера — пакет <code>/config/includes/packages/arctv.yaml</code> (ключ в адресе — свой у этого сервера, не показывайте его посторонним):</div>
+      <textarea id="doorYaml1" rows="8" readonly></textarea>
+      <div class="hint">2) В автоматизации «Домофон Entrance», ветка звонка в дверь, после запуска таймера — действие:</div>
+      <textarea id="doorYaml2" rows="5" readonly></textarea>
+      <div class="hint">3) Автоматизация «ArcTV — конец вызова» (таймер вернулся в idle — окна закрываются):</div>
+      <textarea id="doorYaml3" rows="13" readonly></textarea>
+    </details>
     </div>
   </section>
 
@@ -1004,8 +1007,8 @@ function doorRender() {
     (st.active && st.frameErr ? ' · камера: <span class="warn">' + esc(st.frameErr) + '</span>' : '') +
     ' · телевизоров на связи: ' + (st.tvs || 0);
   var host = st.host || '9a2b6b82-arctv', url = 'http://' + host + ':8090/doorbell?key=' + (st.key || '');
-  $('doorYaml1').value = 'rest_command:\n  arctv_doorbell:\n    url: "' + url + '"\n    method: POST\n    content_type: "application/json"\n    timeout: 5\n    payload: >-\n      {"event":"{{ event }}","door":"entrance","reason":"{{ reason | default(\'\') }}"}';
-  $('doorYaml2').value = '- action: rest_command.arctv_doorbell\n  data:\n    event: ring\n  continue_on_error: true';
+  $('doorYaml1').value = '# ArcTV (домофон на телевизорах): сигнал о звонке и конце вызова на сервер ArcTV\narctv:\n  rest_command:\n    arctv_doorbell:\n      url: "' + url + '"\n      method: POST\n      content_type: "application/json"\n      timeout: 5\n      payload: >-\n        {"event":"{{ event }}","door":"entrance","reason":"{{ reason | default(\'\') }}"}';
+  $('doorYaml2').value = '- alias: "ArcTV: показать окно домофона на телевизорах"\n  action: rest_command.arctv_doorbell\n  data:\n    event: ring\n  continue_on_error: true';
   $('doorYaml3').value = 'alias: ArcTV — конец вызова\ntriggers:\n  - trigger: state\n    entity_id: ' + (d.timer || 'timer.vyzov_v_dver') + '\n    to: idle\nactions:\n  - action: rest_command.arctv_doorbell\n    data:\n      event: end\n      reason: timeout\n    continue_on_error: true\nmode: queued';
 }
 function doorLoad() {
@@ -1014,6 +1017,7 @@ function doorLoad() {
     var f = $('doorForm');
     if (!f.getAttribute('data-dirty')) {
       f.elements.on.checked = !!DOOR.on;
+      f.elements.fps.value = DOOR.fps === undefined ? 1 : DOOR.fps;
       ['camera', 'timer', 'open', 'hangup'].forEach(function (k) { f.elements[k].value = DOOR[k] || ''; });
     }
     doorRender();
@@ -1022,7 +1026,7 @@ function doorLoad() {
 $('doorForm').addEventListener('input', function () { $('doorForm').setAttribute('data-dirty', '1'); });
 $('doorForm').addEventListener('submit', function (e) {
   e.preventDefault();
-  var f = e.target, v = { on: f.elements.on.checked, key: DOOR ? DOOR.key : '' };
+  var f = e.target, v = { on: f.elements.on.checked, fps: f.elements.fps.value, key: DOOR ? DOOR.key : '' };
   ['camera', 'timer', 'open', 'hangup'].forEach(function (k) { v[k] = f.elements[k].value.trim(); });
   api('POST', '/api/settings', { DOOR: v }).then(function () {
     f.removeAttribute('data-dirty');

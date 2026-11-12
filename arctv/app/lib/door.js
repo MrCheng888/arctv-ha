@@ -9,7 +9,13 @@ const store = require('./store');
 const BASE = process.env.HA_API_URL || 'http://supervisor/core/api';
 const TOKEN = () => process.env.SUPERVISOR_TOKEN || process.env.HA_TOKEN || '';
 const SAFETY_MS = 150000;     // нет «end» от HA — окно закрывается само через 2,5 мин после последнего звонка
-const FRAME_MS = 1000;        // кадр с камеры — раз в секунду, только пока идёт вызов
+
+// Кадров в секунду (настройка «Домофон» на странице, 0.8.0): 0 — без картинки, обычно 1–2
+function fps() {
+  const f = +(cfg() || {}).fps;
+  return isNaN(f) ? 1 : Math.min(10, Math.max(0, f));
+}
+function frameMs() { return Math.max(100, Math.round(1000 / (fps() || 1))); }
 const WAIT_MS = 25000;        // ожидающий запрос телевизора держится до 25 с
 
 // seq растёт при каждом изменении — телевизор ждёт, пока seq станет не тем, что у него
@@ -38,25 +44,26 @@ async function ha(method, path, body, raw) {
 }
 
 function startFrames() {
-  if (frameTimer || !haReady()) { return; }
+  if (frameTimer || !haReady() || fps() === 0) { return; }
   const tick = async () => {
     if (!S.active) { frameTimer = null; return; }
     try {
       S.frame = await ha('GET', '/camera_proxy/' + encodeURIComponent(cfg().camera), null, true);
       S.frameAt = Date.now(); S.frameErr = '';
     } catch (e) { S.frameErr = e.message; }
-    frameTimer = S.active ? setTimeout(tick, FRAME_MS) : null;
+    frameTimer = S.active ? setTimeout(tick, frameMs()) : null;
   };
   frameTimer = setTimeout(tick, 0);
 }
 function stopFrames() { if (frameTimer) { clearTimeout(frameTimer); frameTimer = null; } S.frame = null; S.frameAt = 0; }
 
-// В дверь позвонили. Повторный звонок во время вызова — то же окно (время звонка обновляется:
-// телевизор, где окно скрыли кнопкой Return, покажет его снова).
+// В дверь позвонили. Повторный звонок во время вызова — то же окно, но время звонка обновляется:
+// телевизор, где окно скрыли кнопкой Return, покажет его снова, а прежний статус («Вызов сброшен»)
+// очищается, чтобы кнопки «открыть / сбросить» снова работали (замечание 12.11: после сброса
+// следующий звонок приходил без кнопок — вызов в HA ещё минуту не закончен, и статус оставался).
 function ring(door) {
-  const was = S.active;
   S.active = true; S.ringAt = Date.now(); S.door = String(door || '').slice(0, 40);
-  if (!was) { S.status = ''; S.statusAt = 0; S.reason = ''; }
+  S.status = ''; S.statusAt = 0; S.reason = '';
   if (safety) { clearTimeout(safety); }
   safety = setTimeout(() => { log('нет сигнала об окончании вызова — окно закрыто через 2,5 мин'); end('safety'); }, SAFETY_MS);
   startFrames();
@@ -93,7 +100,7 @@ function keyOk(k) { const c = cfg(); return !!(c.key && k && String(k) === c.key
 // Состояние для телевизора: показывать ли окно (домофон включён, флажок в карточке телевизора)
 function view(dev) {
   const show = enabled() && store.doorAllowed(dev);
-  return { seq: S.seq, active: show && S.active, ringAt: S.ringAt, status: S.status, statusAt: S.statusAt, on: show, now: Date.now() };
+  return { seq: S.seq, active: show && S.active, ringAt: S.ringAt, status: S.status, statusAt: S.statusAt, on: show, fps: fps(), now: Date.now() };
 }
 
 // Ожидающий запрос: ответ сразу, если у телевизора старый seq, иначе — при изменении или через 25 с

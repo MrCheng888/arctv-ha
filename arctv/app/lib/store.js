@@ -63,7 +63,7 @@ const DEFAULTS = {
   HOLIDAYS: [],                // значки праздников (0.6.8): правила дат, lib/holidays.js; время изменения — _holAt
   // Домофон (0.7.9, lib/door.js): сущности Home Assistant; key — ключ для POST /doorbell (создаётся сам)
   DOOR: { on: false, camera: 'camera.entrance_mediaprofile_channel1_mainstream', timer: 'timer.vyzov_v_dver',
-    open: 'script.entrance_open_door_hangup', hangup: 'script.entrance_hangup', key: '' }
+    open: 'script.entrance_open_door_hangup', hangup: 'script.entrance_hangup', fps: 1, key: '' }
 };
 // Свои у каждого плейлиста (settings.PL[id]); до 0.6.1 были общими — переносятся в плейлист № 1
 const PL_DEFAULTS = {
@@ -129,8 +129,10 @@ function cleanValue(k, v) {
       const t = String(x == null ? '' : x).trim().toLowerCase();
       return new RegExp('^' + dom + '\\.[a-z0-9_]{1,120}$').test(t) ? t : def;
     };
+    let fps = parseInt(v.fps, 10);                     // кадров в секунду: 0 — без картинки, не больше 10
+    if (isNaN(fps)) { fps = d.fps; }
     return { on: v.on === true || v.on === 'true', camera: ent(v.camera, d.camera, 'camera'), timer: ent(v.timer, d.timer, 'timer'),
-      open: ent(v.open, d.open, 'script'), hangup: ent(v.hangup, d.hangup, 'script'),
+      open: ent(v.open, d.open, 'script'), hangup: ent(v.hangup, d.hangup, 'script'), fps: Math.min(10, Math.max(0, fps)),
       key: /^[\w-]{8,40}$/.test(String(v.key || '')) ? String(v.key) : '' };
   }
   if (k === 'GROUP_NAMES') {                         // {имя у провайдера: своё имя}; пустое или то же — не храним
