@@ -1,5 +1,5 @@
 name: ArcTV
-version: "0.7.7"
+version: "0.7.9"
 slug: arctv
 description: Домашний сервер IPTV для телевизоров Samsung (Tizen и Orsay)
 url: https://github.com/MrCheng888/arctv-ha
@@ -16,6 +16,8 @@ ports_description:
   8090/tcp: Страница сервера и адреса для телевизоров
 # страница сервера внутри Home Assistant (без второго пароля) и пункт в боковом меню; прямой адрес :18090 — с паролем
 ingress: true
+# домофон (0.7.9): доступ к API Home Assistant (камера, скрипты, таймер) — http://supervisor/core/api, SUPERVISOR_TOKEN
+homeassistant_api: true
 ingress_port: 8090
 panel_icon: mdi:television-play
 panel_title: ArcTV

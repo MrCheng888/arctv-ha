@@ -24,6 +24,9 @@ managed from a web page.
 - **Shared state:** favorites and saved archive positions are shared by all TVs; per-TV settings
   (accent color, buffering, overlay opacity, allowed group types).
 - **TV access control:** a new TV must be allowed on the web page before it gets the playlist.
+- **Doorbell:** when Home Assistant reports a doorbell ring, chosen TVs show a corner window with the
+  door camera over live TV; the remote opens the door (with confirmation), hangs up, or hides the window.
+  Uses the add-on's own Home Assistant API access (camera snapshot, scripts, call timer).
 - **Holiday icons** shown on the TV on chosen dates (yearly, one-time, or relative to Orthodox Easter).
 - **Playlist for other players:** per-playlist M3U link and file with the server's guide.
 - **Web page:** inside Home Assistant (Ingress, sidebar item **ArcTV**, no extra password) or

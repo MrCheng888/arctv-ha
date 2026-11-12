@@ -13,6 +13,7 @@ const m3u = require('./lib/m3u');
 const sources = require('./lib/sources');
 const epg = require('./lib/epg');
 const holidays = require('./lib/holidays');
+const door = require('./lib/door');
 
 const VERSION = require('./package.json').version;
 const PORT = parseInt(process.env.PORT || '8090', 10);
@@ -165,6 +166,52 @@ async function route(req, res) {
       send(res, 200, exportEpg(id), 'application/gzip', q.get('dl') ? { 'Content-Disposition': "attachment; filename=\"epg.xml.gz\"; filename*=UTF-8''" + fname + '.xml.gz' } : {});
     }
     return;
+  }
+
+  // ----- домофон (0.7.9, lib/door.js) -----
+  // От Home Assistant (rest_command): POST /doorbell?key=… {event: ring | end, door, reason}
+  if (m === 'POST' && p === '/doorbell') {
+    if (!door.keyOk(q.get('key') || req.headers['x-arctv-key'])) { send(res, 403, { error: 'Неверный ключ домофона' }); return; }
+    send(res, 200, door.event(await readBody(req)));
+    return;
+  }
+  // Телевизор ждёт звонка: ответ при изменении (seq) или через 25 с
+  if (m === 'GET' && p === '/api/door/wait') {
+    const dev = String(q.get('dev') || '');
+    if (!store.isAllowed(dev)) { send(res, 403, { error: 'Телевизор не разрешён на сервере', notAllowed: true }); return; }
+    door.wait(dev, q.get('seq'), req, (v) => { if (!res.writableEnded) { send(res, 200, v); } });
+    return;
+  }
+  // Кадр с камеры (пока идёт вызов): телевизорам с флажком «Домофон» и странице сервера
+  if (m === 'GET' && p === '/api/door/frame.jpg') {
+    if (!store.doorAllowed(String(q.get('dev') || '')) && !authorized(req)) { send(res, 403, { error: 'Нет доступа' }); return; }
+    const f = door.frame();
+    if (!f) { send(res, 404, { error: 'Кадра нет' }); return; }
+    send(res, 200, f, 'image/jpeg');
+    return;
+  }
+  // Кнопка с пульта: {cmd: open | hangup}
+  if (m === 'POST' && p === '/api/door/cmd') {
+    const b = await readBody(req);
+    const r = await door.command(String(q.get('dev') || ''), b.cmd === 'open' ? 'open' : 'hangup');
+    send(res, r.error ? 409 : 200, r);
+    return;
+  }
+  // Для страницы сервера: состояние, снимок для проверки, имитация звонка
+  if (p.indexOf('/api/door/') === 0 && ['/api/door/status', '/api/door/snap', '/api/door/test'].indexOf(p) >= 0) {
+    if (!authorized(req)) { needAuth(res); return; }
+    if (p === '/api/door/status') { send(res, 200, door.status()); return; }
+    if (p === '/api/door/snap') {
+      try { send(res, 200, await door.snapshot(), 'image/jpeg'); } catch (e) { send(res, 502, { error: e.message }); }
+      return;
+    }
+    if (p === '/api/door/test' && m === 'POST') {
+      const b = await readBody(req);
+      if (!door.status().on) { send(res, 409, { error: 'Сначала включите домофон и сохраните' }); return; }
+      if (b.event === 'ring') { door.ring('test'); } else { door.end('test'); }
+      send(res, 200, door.status());
+      return;
+    }
   }
 
   // ----- для телевизора -----
@@ -327,7 +374,9 @@ async function route(req, res) {
         const clash = nameClashes(+b.pl || id, b.GROUP_NAMES);
         if (clash.length) { send(res, 400, { error: 'Одинаковые имена групп: ' + clash.join(', ') + '. Имена групп не должны повторяться.' }); return; }
       }
+      const doorWas = JSON.stringify(store.getSettings().DOOR);
       store.saveSettings(b, +b.pl || id);
+      if (JSON.stringify(store.getSettings().DOOR) !== doorWas) { door.check(); }   // домофон включили — вдруг вызов уже идёт
       // удалённые плейлисты: их настройки, Избранное, сохранения и файлы
       const idsAfter = new Set(store.getSettings().SOURCES.map((x) => x.id));
       for (const old of idsBefore) { if (!idsAfter.has(old)) { store.dropPl(old); cache.forget(old); } }
@@ -534,6 +583,9 @@ cache.restore();
 server.listen(PORT, () => {
   cache.log('ArcTV server ' + VERSION + ' слушает порт ' + PORT + ', данные в ' + store.DIR);
   cache.startup();
+  // домофон: вдруг вызов уже идёт (сервер перезапустили во время звонка); ключ для HA создаётся сам
+  door.key();
+  setTimeout(() => { door.check(); }, 5000);
 });
 
 function shutdown() {

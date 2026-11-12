@@ -224,6 +224,33 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
   </section>
 
   <section>
+    <h2 class="fold" id="doorHead"><span class="arr2" id="doorArr">▸</span>Домофон<span id="doorSum" class="muted"></span></h2>
+    <div id="doorBody" class="hidden">
+    <p class="sub">Звонок в дверь — окно с картинкой с камеры поверх эфира на телевизорах с флажком «Домофон» в карточке телевизора. С пульта: OK или зелёная — открыть дверь (с подтверждением), красная — сбросить вызов, Return — скрыть окно на этом телевизоре. Окно закрывается, когда Home Assistant сообщит о конце вызова (или само через 2,5 мин). Работает только в дополнении Home Assistant.</p>
+    <div id="doorState" class="hint" style="margin-bottom:10px"></div>
+    <form class="grid" id="doorForm" autocomplete="off">
+      <label class="chk wide"><input type="checkbox" name="on"> Домофон включён</label>
+      <label>Камера <input type="text" name="camera" placeholder="camera.…"><div class="hint">Снимок для окна, раз в секунду, пока идёт вызов.</div></label>
+      <label>Таймер вызова <input type="text" name="timer" placeholder="timer.…"><div class="hint">Проверяется при запуске сервера: вызов уже идёт — окно покажется.</div></label>
+      <label>Скрипт «Открыть дверь» <input type="text" name="open" placeholder="script.…"></label>
+      <label>Скрипт «Сбросить вызов» <input type="text" name="hangup" placeholder="script.…"></label>
+      <div class="row wide"><button class="primary" type="submit">Сохранить</button>
+        <button type="button" id="doorSnap">Снимок с камеры</button>
+        <button type="button" id="doorRing">Проверить: звонок</button><button type="button" id="doorEnd">Проверить: конец</button>
+        <span id="doorMsg" class="muted"></span></div>
+    </form>
+    <img id="doorImg" class="hidden" alt="Снимок с камеры" style="max-width:480px;margin-top:10px;border-radius:6px">
+    <h3 style="margin:16px 0 4px;font-size:15px">Для Home Assistant</h3>
+    <div class="hint">1) В <code>configuration.yaml</code> (ключ в адресе — свой у этого сервера, не показывайте его посторонним):</div>
+    <textarea id="doorYaml1" rows="8" readonly></textarea>
+    <div class="hint">2) В автоматизацию «Домофон Entrance», ветка звонка в дверь — действие:</div>
+    <textarea id="doorYaml2" rows="4" readonly></textarea>
+    <div class="hint">3) Новая автоматизация — конец вызова (таймер вернулся в idle):</div>
+    <textarea id="doorYaml3" rows="12" readonly></textarea>
+    </div>
+  </section>
+
+  <section>
     <h2>Телевизоры</h2>
     <p class="sub">У каждого телевизора свои настройки плеера и цвет. Их же можно менять в Tools на самом телевизоре. Плейлист сервер отдаёт только разрешённым телевизорам: новый появится здесь с кнопкой «Разрешить».</p>
     <div id="tvs" class="muted">Пока ни один телевизор не подключался.</div>
@@ -498,6 +525,7 @@ function renderTvs() {
       '<label class="chk"><input type="checkbox" data-f="START_LOW_BITRATE"' + (d.set.START_LOW_BITRATE ? ' checked' : '') + '> Начинать с низкого качества</label>' +
       '<div><label class="chk"><input type="checkbox" data-c="closedAllowed"' + (d.closedAllowed !== false ? ' checked' : '') + '> Закрытые группы (по PIN)</label><div class="hint">Снять — этот телевизор не получает их каналы вовсе.</div></div>' +
       '<div><label class="chk"><input type="checkbox" data-c="extAllowed"' + (d.extAllowed !== false ? ' checked' : '') + '> Расширенные группы</label><div class="hint">Снять — этот телевизор не получает их каналы, в Tools нет «Расширенного режима».</div></div>' +
+      '<div><label class="chk"><input type="checkbox" data-c="door"' + (d.door === true ? ' checked' : '') + '> Домофон</label><div class="hint">Окно звонка в дверь поверх эфира (раздел «Домофон»).</div></div>' +
       '<div class="wide"><label>Цвет оформления</label><div class="swatches">' + Object.keys(ACCENTS).map(function (k) {
         return '<button type="button" class="sw' + (d.set.ACCENT === k ? ' on' : '') + '" data-acc="' + k + '" title="' + ACCENTS[k][0] + '" style="background:' + ACCENTS[k][1] + '"></button>';
       }).join('') + '</div></div>' +
@@ -529,7 +557,7 @@ $('tvs').addEventListener('click', function (e) {
       if (f !== 'name') { set[f] = el.type === 'checkbox' ? el.checked : el.value; }
     });
     if (on) { set.ACCENT = on.getAttribute('data-acc'); }
-    api('POST', '/api/device', { dev: dev, name: c.querySelector('[data-f="name"]').value, set: set, closedAllowed: c.querySelector('[data-c="closedAllowed"]').checked, extAllowed: c.querySelector('[data-c="extAllowed"]').checked }).then(function (r) {
+    api('POST', '/api/device', { dev: dev, name: c.querySelector('[data-f="name"]').value, set: set, closedAllowed: c.querySelector('[data-c="closedAllowed"]').checked, extAllowed: c.querySelector('[data-c="extAllowed"]').checked, door: c.querySelector('[data-c="door"]').checked }).then(function (r) {
       delete tvDirty[dev];
       S.devices = r.devices; renderTvs();
       flash('tvmsg-' + dev, '<span class="okmsg">Сохранено</span>', 3000);
@@ -648,6 +676,7 @@ $('holSave').addEventListener('click', function () {
 });
 
 function load() {
+  if (!$('doorBody').classList.contains('hidden')) { doorLoad(); }
   return api('GET', '/api/status').then(function (s) { S = s; PL = s.pl || 0; renderStatus(); });
 }
 // После «Сохранить» сервер качает заново — обновляем состояние, пока не закончит
@@ -954,6 +983,74 @@ $('saves').addEventListener('click', function (e) {
 
 $('filter').addEventListener('input', renderChannels);
 $('onlyFav').addEventListener('change', renderChannels);
+
+// ----- домофон (0.7.9) -----
+var DOOR = null, DOOR_ST = null;
+function doorFold(open) {
+  $('doorBody').classList.toggle('hidden', !open);
+  $('doorArr').textContent = open ? '▾' : '▸';
+  try { localStorage.setItem('arctv.doorOpen', open ? '1' : ''); } catch (e) {}
+  if (open && SESSION && SESSION.logged) { doorLoad(); }
+}
+$('doorHead').addEventListener('click', function () { doorFold($('doorBody').classList.contains('hidden')); });
+function doorTime(ms) { if (!ms) { return '—'; } var d = new Date(ms); return d.toLocaleTimeString('ru-RU') + ' ' + d.toLocaleDateString('ru-RU'); }
+function doorRender() {
+  var st = DOOR_ST || {}, d = DOOR || {}, tvs = (S && S.devices || []).filter(function (x) { return x.door === true && x.allowed; }).length;
+  $('doorSum').innerHTML = ' · ' + (d.on ? 'включён' : 'выключен') + (st.active ? ' · <span class="warn">идёт вызов</span>' : '') + (d.on ? ' · телевизоров: ' + tvs : '');
+  $('doorState').innerHTML = (st.ha ? '<span class="okmsg">Доступ к Home Assistant есть</span>' : '<span class="warn">Нет доступа к Home Assistant — домофон работает только в дополнении HA</span>') +
+    (st.haErr ? ' · <span class="warn">' + esc(st.haErr) + '</span>' : '') +
+    ' · вызов: ' + (st.active ? '<b>идёт</b> с ' + doorTime(st.ringAt) : 'нет') +
+    ' · последний сигнал от HA: ' + (st.lastEvent ? esc(st.lastEvent) + ' ' + doorTime(st.lastEventAt) : '—') +
+    (st.active && st.frameErr ? ' · камера: <span class="warn">' + esc(st.frameErr) + '</span>' : '') +
+    ' · телевизоров на связи: ' + (st.tvs || 0);
+  var host = st.host || '9a2b6b82-arctv', url = 'http://' + host + ':8090/doorbell?key=' + (st.key || '');
+  $('doorYaml1').value = 'rest_command:\n  arctv_doorbell:\n    url: "' + url + '"\n    method: POST\n    content_type: "application/json"\n    timeout: 5\n    payload: >-\n      {"event":"{{ event }}","door":"entrance","reason":"{{ reason | default(\'\') }}"}';
+  $('doorYaml2').value = '- action: rest_command.arctv_doorbell\n  data:\n    event: ring\n  continue_on_error: true';
+  $('doorYaml3').value = 'alias: ArcTV — конец вызова\ntriggers:\n  - trigger: state\n    entity_id: ' + (d.timer || 'timer.vyzov_v_dver') + '\n    to: idle\nactions:\n  - action: rest_command.arctv_doorbell\n    data:\n      event: end\n      reason: timeout\n    continue_on_error: true\nmode: queued';
+}
+function doorLoad() {
+  return Promise.all([api('GET', '/api/settings'), api('GET', '/api/door/status')]).then(function (r) {
+    DOOR = r[0].values.DOOR; DOOR_ST = r[1];
+    var f = $('doorForm');
+    if (!f.getAttribute('data-dirty')) {
+      f.elements.on.checked = !!DOOR.on;
+      ['camera', 'timer', 'open', 'hangup'].forEach(function (k) { f.elements[k].value = DOOR[k] || ''; });
+    }
+    doorRender();
+  }).catch(function (e) { flash('doorMsg', 'Ошибка: ' + esc(e.message)); });
+}
+$('doorForm').addEventListener('input', function () { $('doorForm').setAttribute('data-dirty', '1'); });
+$('doorForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var f = e.target, v = { on: f.elements.on.checked, key: DOOR ? DOOR.key : '' };
+  ['camera', 'timer', 'open', 'hangup'].forEach(function (k) { v[k] = f.elements[k].value.trim(); });
+  api('POST', '/api/settings', { DOOR: v }).then(function () {
+    f.removeAttribute('data-dirty');
+    flash('doorMsg', '<span class="okmsg">Сохранено</span>', 3000);
+    return doorLoad();
+  }).catch(function (err) { flash('doorMsg', 'Ошибка: ' + esc(err.message)); });
+});
+$('doorSnap').addEventListener('click', function () {
+  flash('doorMsg', 'Снимок…');
+  fetch('api/door/snap?t=' + Date.now(), { credentials: 'same-origin' }).then(function (r) {
+    if (!r.ok) { return r.json().then(function (j) { throw new Error(j.error || ('HTTP ' + r.status)); }); }
+    return r.blob();
+  }).then(function (b) {
+    var img = $('doorImg'); img.src = URL.createObjectURL(b); img.classList.remove('hidden'); flash('doorMsg', '');
+  }).catch(function (err) { flash('doorMsg', 'Камера: ' + esc(err.message)); });
+});
+['doorRing', 'doorEnd'].forEach(function (id) {
+  $(id).addEventListener('click', function () {
+    api('POST', '/api/door/test', { event: id === 'doorRing' ? 'ring' : 'end' }).then(function (st) {
+      DOOR_ST = st; doorRender();
+      flash('doorMsg', '<span class="okmsg">' + (id === 'doorRing' ? 'Звонок отправлен на телевизоры' : 'Вызов закончен') + '</span>', 4000);
+    }).catch(function (err) { flash('doorMsg', 'Ошибка: ' + esc(err.message)); });
+  });
+});
+try { if (localStorage.getItem('arctv.doorOpen')) { doorFold(true); } } catch (e) {}
+setInterval(function () { if (!document.hidden && SESSION && SESSION.logged && !$('doorBody').classList.contains('hidden')) {
+  api('GET', '/api/door/status').then(function (st) { DOOR_ST = st; doorRender(); }).catch(function () {});
+} }, 5000);
 
 start();
 setInterval(function () { if (!document.hidden && SESSION && SESSION.logged) { load(); } }, 30000);

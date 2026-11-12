@@ -60,7 +60,10 @@ const DEFAULTS = {
   CHLIST_HIDE_SEC: 20,
   ACCENT: 'crimson',           // цвет оформления на телевизоре
   OVERLAY_OPACITY: 75,         // непрозрачность окон, %; заголовок окна на 10 плотнее
-  HOLIDAYS: []                 // значки праздников (0.6.8): правила дат, lib/holidays.js; время изменения — _holAt
+  HOLIDAYS: [],                // значки праздников (0.6.8): правила дат, lib/holidays.js; время изменения — _holAt
+  // Домофон (0.7.9, lib/door.js): сущности Home Assistant; key — ключ для POST /doorbell (создаётся сам)
+  DOOR: { on: false, camera: 'camera.entrance_mediaprofile_channel1_mainstream', timer: 'timer.vyzov_v_dver',
+    open: 'script.entrance_open_door_hangup', hangup: 'script.entrance_hangup', key: '' }
 };
 // Свои у каждого плейлиста (settings.PL[id]); до 0.6.1 были общими — переносятся в плейлист № 1
 const PL_DEFAULTS = {
@@ -73,7 +76,7 @@ const PL_DEFAULTS = {
   GROUP_NAMES: {}              // свои имена групп (0.7.2): {имя у провайдера: своё}; остальные настройки — по имени провайдера
 };
 const PL_KEYS = Object.keys(PL_DEFAULTS);
-const SOURCE_KEYS = ['SOURCES', 'REFRESH_HOURS', 'EPG_PAST_HOURS', 'EPG_FUTURE_HOURS', 'ADULT_KEYWORDS', 'HOLIDAYS'];
+const SOURCE_KEYS = ['SOURCES', 'REFRESH_HOURS', 'EPG_PAST_HOURS', 'EPG_FUTURE_HOURS', 'ADULT_KEYWORDS', 'HOLIDAYS', 'DOOR'];
 const COMMON_KEYS = ['EPG_SHIFT_MIN', 'ADULT_PIN', 'ARCHIVE_STEP_SEC', 'ARCHIVE_BIG_STEP_SEC', 'LIVE_EDGE_SEC'];
 const DEVICE_KEYS = ['START_BUFFER_SEC', 'START_LOW_BITRATE', 'ZAP_DELAY_MS', 'CHLIST_HIDE_SEC', 'ACCENT', 'OVERLAY_OPACITY'];
 // источники, которые нужны телевизору как запасной путь без сервера (группы и программа — по плейлистам, server.js)
@@ -120,6 +123,16 @@ function cleanValue(k, v) {
     return out;
   }
   if (k === 'HOLIDAYS') { return holidays.clean(v); }
+  if (k === 'DOOR') {                                // {on, camera, timer, open, hangup, key}; сущности HA — вида domain.name
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
+    const d = DEFAULTS.DOOR, ent = (x, def, dom) => {
+      const t = String(x == null ? '' : x).trim().toLowerCase();
+      return new RegExp('^' + dom + '\\.[a-z0-9_]{1,120}$').test(t) ? t : def;
+    };
+    return { on: v.on === true || v.on === 'true', camera: ent(v.camera, d.camera, 'camera'), timer: ent(v.timer, d.timer, 'timer'),
+      open: ent(v.open, d.open, 'script'), hangup: ent(v.hangup, d.hangup, 'script'),
+      key: /^[\w-]{8,40}$/.test(String(v.key || '')) ? String(v.key) : '' };
+  }
   if (k === 'GROUP_NAMES') {                         // {имя у провайдера: своё имя}; пустое или то же — не храним
     if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
     const o = {};
@@ -254,6 +267,7 @@ function saveSettings(input, pl) {
     let v = cleanValue(k, input[k]);
     if (v === undefined) { continue; }
     if (k === 'SOURCES') { v = numberSources(v); }
+    if (k === 'DOOR' && !v.key && settings.DOOR) { v.key = settings.DOOR.key || ''; }   // ключ со страницы не стираем
     if (JSON.stringify(v) !== JSON.stringify(settings[k])) {
       settings[k] = v;
       if (COMMON_KEYS.indexOf(k) >= 0) { settings._at[k] = now; }
@@ -300,6 +314,8 @@ function closedAllowed(dev) { return !(dev && devices[dev] && devices[dev].close
 function extAllowed(dev) { return !(dev && devices[dev] && devices[dev].extAllowed === false); }
 
 function isAllowed(dev) { return !!(dev && devices[dev] && devices[dev].allowed); }
+// Окно домофона на этом телевизоре (0.7.9): флажок в карточке, по умолчанию нет; только разрешённым
+function doorAllowed(dev) { return !!(dev && devices[dev] && devices[dev].allowed && devices[dev].door === true); }
 
 function listDevices() {
   return Object.keys(devices).map((id) => Object.assign({ id }, devices[id])).sort((a, b) => b.seen - a.seen);
@@ -342,6 +358,7 @@ function saveDevice(dev, input) {
   if (typeof input.allow === 'boolean') { d.allowed = input.allow; }
   if (typeof input.closedAllowed === 'boolean') { d.closedAllowed = input.closedAllowed; }
   if (typeof input.extAllowed === 'boolean') { d.extAllowed = input.extAllowed; }
+  if (typeof input.door === 'boolean') { d.door = input.door; }
   for (const k of DEVICE_KEYS) {
     if (!input.set || !(k in input.set)) { continue; }
     const v = cleanValue(k, input.set[k]);
@@ -436,6 +453,6 @@ function removeSave(id) {
 module.exports = {
   DIR, writeAtomic, readText, readBuf, readJson, remove,
   getSettings, saveSettings, plSettings, dropPl, PL_KEYS, SOURCE_KEYS, COMMON_KEYS, DEVICE_KEYS, ACCENTS,
-  seenDevice, listDevices, isAllowed, closedAllowed, extAllowed, deviceConfig, applyTvChanges, saveDevice,
+  seenDevice, listDevices, isAllowed, doorAllowed, closedAllowed, extAllowed, deviceConfig, applyTvChanges, saveDevice,
   getState, favOf, changeFavorites, addSave, removeSave, flush
 };
