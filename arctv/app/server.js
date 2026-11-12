@@ -14,6 +14,7 @@ const sources = require('./lib/sources');
 const epg = require('./lib/epg');
 const holidays = require('./lib/holidays');
 const door = require('./lib/door');
+const cams = require('./lib/cams');
 
 const VERSION = require('./package.json').version;
 const PORT = parseInt(process.env.PORT || '8090', 10);
@@ -214,6 +215,33 @@ async function route(req, res) {
     }
   }
 
+  // ----- камеры (0.8.1, lib/cams.js) -----
+  // Список для телевизора с плиткой «Камеры» (и для страницы сервера)
+  if (m === 'GET' && p === '/api/cams') {
+    const dev = String(q.get('dev') || '');
+    if (!authorized(req) && !(store.isAllowed(dev) && store.camsAllowed(dev))) { send(res, 403, { error: 'Камеры этому телевизору не разрешены' }); return; }
+    if (!cams.haReady()) { send(res, 503, { error: 'Нет доступа к Home Assistant' }); return; }
+    try { send(res, 200, { fps: cams.fps(), cams: await cams.tvList() }); } catch (e) { send(res, 502, { error: e.message }); }
+    return;
+  }
+  // Кадр: телевизору — по номеру включённой камеры (i), странице — по сущности (ent, для «Снимка»)
+  if (m === 'GET' && p === '/api/cams/frame.jpg') {
+    const dev = String(q.get('dev') || '');
+    let ent = null;
+    if (authorized(req) && /^camera\.[a-z0-9_]{1,120}$/.test(String(q.get('ent') || ''))) { ent = String(q.get('ent')); }
+    if (!ent && store.isAllowed(dev) && store.camsAllowed(dev)) { ent = cams.entOf(q.get('i')); }
+    if (!ent) { send(res, 403, { error: 'Нет доступа' }); return; }
+    try { send(res, 200, await cams.frame(ent), 'image/jpeg'); } catch (e) { send(res, 502, { error: 'Камера: ' + e.message }); }
+    return;
+  }
+  // Для страницы: все camera.* из HA + сохранённые (пересканирование — каждый запрос)
+  if (m === 'GET' && p === '/api/cams/list') {
+    if (!authorized(req)) { needAuth(res); return; }
+    if (!cams.haReady()) { send(res, 200, { fps: cams.fps(), ha: false, rows: [] }); return; }
+    try { send(res, 200, await cams.pageList()); } catch (e) { send(res, 502, { error: e.message }); }
+    return;
+  }
+
   // ----- для телевизора -----
   // Номер плейлиста — pl=…; без него (приложение до 0.6.0) — первый включённый плейлист
   // now — время сервера (мс): телевизор сверяет по нему свои часы
@@ -244,6 +272,7 @@ async function route(req, res) {
     cfg.config.CLOSED_GROUPS = tvGroups(id, ps.CLOSED_GROUPS, true);
     cfg.config.EXT_GROUPS = tvGroups(id, ps.EXT_GROUPS);
     cfg.config.EPG_URL = (srcById(id) || {}).epg ? (srcById(id).epg[0] || '') : '';
+    cfg.config.CAMS = cams.countFor(dev);              // плитка «Камеры» (0.8.1): сколько камер; 0 — плитки нет
     send(res, 200, Object.assign(cfg, {
       dev, server: VERSION, playlistAt: x.at, epgAt: x.epgAt, channels: x.parsed ? x.parsed.channels.length : 0, epgCount: x.epgCount,
       refreshing: st.running, now: Date.now(), pls: tvPlaylists(),

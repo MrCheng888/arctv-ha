@@ -63,7 +63,9 @@ const DEFAULTS = {
   HOLIDAYS: [],                // значки праздников (0.6.8): правила дат, lib/holidays.js; время изменения — _holAt
   // Домофон (0.7.9, lib/door.js): сущности Home Assistant; key — ключ для POST /doorbell (создаётся сам)
   DOOR: { on: false, camera: 'camera.entrance_mediaprofile_channel1_mainstream', timer: 'timer.vyzov_v_dver',
-    open: 'script.entrance_open_door_hangup', hangup: 'script.entrance_hangup', fps: 1, key: '' }
+    open: 'script.entrance_open_door_hangup', hangup: 'script.entrance_hangup', fps: 1, key: '' },
+  // Камеры (0.8.1, lib/cams.js): fps — кадров в секунду при просмотре; items — выбранные camera.* из HA
+  CAMS: { fps: 2, items: [] }
 };
 // Свои у каждого плейлиста (settings.PL[id]); до 0.6.1 были общими — переносятся в плейлист № 1
 const PL_DEFAULTS = {
@@ -76,7 +78,7 @@ const PL_DEFAULTS = {
   GROUP_NAMES: {}              // свои имена групп (0.7.2): {имя у провайдера: своё}; остальные настройки — по имени провайдера
 };
 const PL_KEYS = Object.keys(PL_DEFAULTS);
-const SOURCE_KEYS = ['SOURCES', 'REFRESH_HOURS', 'EPG_PAST_HOURS', 'EPG_FUTURE_HOURS', 'ADULT_KEYWORDS', 'HOLIDAYS', 'DOOR'];
+const SOURCE_KEYS = ['SOURCES', 'REFRESH_HOURS', 'EPG_PAST_HOURS', 'EPG_FUTURE_HOURS', 'ADULT_KEYWORDS', 'HOLIDAYS', 'DOOR', 'CAMS'];
 const COMMON_KEYS = ['EPG_SHIFT_MIN', 'ADULT_PIN', 'ARCHIVE_STEP_SEC', 'ARCHIVE_BIG_STEP_SEC', 'LIVE_EDGE_SEC'];
 const DEVICE_KEYS = ['START_BUFFER_SEC', 'START_LOW_BITRATE', 'ZAP_DELAY_MS', 'CHLIST_HIDE_SEC', 'ACCENT', 'OVERLAY_OPACITY'];
 // источники, которые нужны телевизору как запасной путь без сервера (группы и программа — по плейлистам, server.js)
@@ -123,6 +125,27 @@ function cleanValue(k, v) {
     return out;
   }
   if (k === 'HOLIDAYS') { return holidays.clean(v); }
+  if (k === 'CAMS') {                                // {fps, items: [{ent, name, on}]}; имена включённых — разные
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
+    let fps = parseInt(v.fps, 10);
+    if (isNaN(fps)) { fps = DEFAULTS.CAMS.fps; }
+    const items = [], names = {}, ents = {};
+    for (const x of (Array.isArray(v.items) ? v.items.slice(0, 30) : [])) {
+      if (!x || typeof x !== 'object') { continue; }
+      const ent = String(x.ent || '').trim().toLowerCase();
+      if (!/^camera\.[a-z0-9_]{1,120}$/.test(ent) || ents[ent]) { continue; }
+      let name = String(x.name || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+      const on = x.on === true || x.on === 'true';
+      if (on) {
+        if (!name) { name = ent.slice(7); }
+        if (names[name.toLowerCase()]) { continue; }   // две включённые с одним именем — вторая не сохраняется
+        names[name.toLowerCase()] = 1;
+      }
+      ents[ent] = 1;
+      items.push({ ent, name, on });
+    }
+    return { fps: Math.min(10, Math.max(1, fps)), items };
+  }
   if (k === 'DOOR') {                                // {on, camera, timer, open, hangup, key}; сущности HA — вида domain.name
     if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
     const d = DEFAULTS.DOOR, ent = (x, def, dom) => {
@@ -318,6 +341,8 @@ function extAllowed(dev) { return !(dev && devices[dev] && devices[dev].extAllow
 function isAllowed(dev) { return !!(dev && devices[dev] && devices[dev].allowed); }
 // Окно домофона на этом телевизоре (0.7.9): флажок в карточке, по умолчанию нет; только разрешённым
 function doorAllowed(dev) { return !!(dev && devices[dev] && devices[dev].allowed && devices[dev].door === true); }
+// Плитка «Камеры» на этом телевизоре (0.8.1): флажок в карточке, по умолчанию нет
+function camsAllowed(dev) { return !!(dev && devices[dev] && devices[dev].allowed && devices[dev].cams === true); }
 
 function listDevices() {
   return Object.keys(devices).map((id) => Object.assign({ id }, devices[id])).sort((a, b) => b.seen - a.seen);
@@ -361,6 +386,7 @@ function saveDevice(dev, input) {
   if (typeof input.closedAllowed === 'boolean') { d.closedAllowed = input.closedAllowed; }
   if (typeof input.extAllowed === 'boolean') { d.extAllowed = input.extAllowed; }
   if (typeof input.door === 'boolean') { d.door = input.door; }
+  if (typeof input.cams === 'boolean') { d.cams = input.cams; }
   for (const k of DEVICE_KEYS) {
     if (!input.set || !(k in input.set)) { continue; }
     const v = cleanValue(k, input.set[k]);
@@ -455,6 +481,6 @@ function removeSave(id) {
 module.exports = {
   DIR, writeAtomic, readText, readBuf, readJson, remove,
   getSettings, saveSettings, plSettings, dropPl, PL_KEYS, SOURCE_KEYS, COMMON_KEYS, DEVICE_KEYS, ACCENTS,
-  seenDevice, listDevices, isAllowed, doorAllowed, closedAllowed, extAllowed, deviceConfig, applyTvChanges, saveDevice,
+  seenDevice, listDevices, isAllowed, doorAllowed, camsAllowed, closedAllowed, extAllowed, deviceConfig, applyTvChanges, saveDevice,
   getState, favOf, changeFavorites, addSave, removeSave, flush
 };

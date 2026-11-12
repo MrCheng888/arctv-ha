@@ -254,6 +254,21 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
   </section>
 
   <section>
+    <h2 class="fold" id="camsHead"><span class="arr2" id="camsArr">▸</span>Камеры<span id="camsSum" class="muted"></span></h2>
+    <div id="camsBody" class="hidden">
+    <p class="sub">Плитка «Камеры» — последняя на экране групп у телевизоров с флажком «Камеры» в карточке (раздел «Телевизоры»). Список ниже сервер берёт из Home Assistant сам, руками ничего добавлять не нужно: галочка — показывать на телевизорах, имя — подпись плитки (у включённых имена должны быть разными). Одна и та же камера может встречаться в списке несколько раз — это разные интеграции HA; включайте ту, у которой «Снимок» надёжно показывает картинку. Камеру, пропавшую из HA, можно удалить. Звука нет: это картинка с выбранной частотой. Без сервера или вне дополнения HA плитки на телевизорах нет.</p>
+    <form class="grid" id="camsForm" autocomplete="off">
+      <label>Кадров в секунду <input type="number" name="fps" min="1" max="10" step="1"><div class="hint">Частота при просмотре, 1–10; телевизорам Orsay разумно 2–3.</div></label>
+      <div class="row wide"><button class="primary" type="submit">Сохранить</button>
+        <button type="button" id="camsReload">Обновить список</button>
+        <span id="camsMsg" class="muted"></span></div>
+    </form>
+    <div id="camsList" style="margin-top:10px"></div>
+    <img id="camsImg" class="hidden" alt="Снимок с камеры" style="max-width:480px;margin-top:10px;border-radius:6px">
+    </div>
+  </section>
+
+  <section>
     <h2>Телевизоры</h2>
     <p class="sub">У каждого телевизора свои настройки плеера и цвет. Их же можно менять в Tools на самом телевизоре. Плейлист сервер отдаёт только разрешённым телевизорам: новый появится здесь с кнопкой «Разрешить».</p>
     <div id="tvs" class="muted">Пока ни один телевизор не подключался.</div>
@@ -529,6 +544,7 @@ function renderTvs() {
       '<div><label class="chk"><input type="checkbox" data-c="closedAllowed"' + (d.closedAllowed !== false ? ' checked' : '') + '> Закрытые группы (по PIN)</label><div class="hint">Снять — этот телевизор не получает их каналы вовсе.</div></div>' +
       '<div><label class="chk"><input type="checkbox" data-c="extAllowed"' + (d.extAllowed !== false ? ' checked' : '') + '> Расширенные группы</label><div class="hint">Снять — этот телевизор не получает их каналы, в Tools нет «Расширенного режима».</div></div>' +
       '<div><label class="chk"><input type="checkbox" data-c="door"' + (d.door === true ? ' checked' : '') + '> Домофон</label><div class="hint">Окно звонка в дверь поверх эфира (раздел «Домофон»).</div></div>' +
+      '<div><label class="chk"><input type="checkbox" data-c="cams"' + (d.cams === true ? ' checked' : '') + '> Камеры</label><div class="hint">Плитка «Камеры» на экране групп (раздел «Камеры»).</div></div>' +
       '<div class="wide"><label>Цвет оформления</label><div class="swatches">' + Object.keys(ACCENTS).map(function (k) {
         return '<button type="button" class="sw' + (d.set.ACCENT === k ? ' on' : '') + '" data-acc="' + k + '" title="' + ACCENTS[k][0] + '" style="background:' + ACCENTS[k][1] + '"></button>';
       }).join('') + '</div></div>' +
@@ -560,7 +576,7 @@ $('tvs').addEventListener('click', function (e) {
       if (f !== 'name') { set[f] = el.type === 'checkbox' ? el.checked : el.value; }
     });
     if (on) { set.ACCENT = on.getAttribute('data-acc'); }
-    api('POST', '/api/device', { dev: dev, name: c.querySelector('[data-f="name"]').value, set: set, closedAllowed: c.querySelector('[data-c="closedAllowed"]').checked, extAllowed: c.querySelector('[data-c="extAllowed"]').checked, door: c.querySelector('[data-c="door"]').checked }).then(function (r) {
+    api('POST', '/api/device', { dev: dev, name: c.querySelector('[data-f="name"]').value, set: set, closedAllowed: c.querySelector('[data-c="closedAllowed"]').checked, extAllowed: c.querySelector('[data-c="extAllowed"]').checked, door: c.querySelector('[data-c="door"]').checked, cams: c.querySelector('[data-c="cams"]').checked }).then(function (r) {
       delete tvDirty[dev];
       S.devices = r.devices; renderTvs();
       flash('tvmsg-' + dev, '<span class="okmsg">Сохранено</span>', 3000);
@@ -1052,6 +1068,86 @@ $('doorSnap').addEventListener('click', function () {
   });
 });
 try { if (localStorage.getItem('arctv.doorOpen')) { doorFold(true); } } catch (e) {}
+
+// ----- камеры (0.8.1) -----
+var CAMS = null, CAMS_DIRTY = false;   // rows: сохранённые камеры первыми (их порядок = порядок на ТВ), затем остальные из HA
+function camsFold(open) {
+  $('camsBody').classList.toggle('hidden', !open);
+  $('camsArr').textContent = open ? '▾' : '▸';
+  try { localStorage.setItem('arctv.camsOpen', open ? '1' : ''); } catch (e) {}
+  if (open && SESSION && SESSION.logged && !CAMS_DIRTY) { camsLoad(); }
+}
+$('camsHead').addEventListener('click', function () { camsFold($('camsBody').classList.contains('hidden')); });
+function camsRender() {
+  var r = CAMS ? CAMS.rows : [], on = 0, i;
+  for (i = 0; i < r.length; i++) { if (r[i].on) { on++; } }
+  $('camsSum').innerHTML = ' · ' + (CAMS && !CAMS.ha ? '<span class="warn">нет доступа к Home Assistant</span>' : (on ? 'включено: ' + on : 'выключены')) + (CAMS_DIRTY ? ' · <span class="warn">есть несохранённые изменения</span>' : '');
+  if (!CAMS) { return; }
+  if (!r.length) { $('camsList').innerHTML = '<span class="muted">' + (CAMS.ha ? 'В Home Assistant нет камер.' : 'Камеры работают только в дополнении Home Assistant.') + '</span>'; return; }
+  $('camsList').innerHTML = '<table><tr><th>На ТВ</th><th style="text-align:left">Имя на ТВ</th><th style="text-align:left">Камера в Home Assistant</th><th>Состояние</th><th></th></tr>' + r.map(function (x, i) {
+    var st = x.missing ? '<span class="warn">нет в HA</span>' : (x.online ? '<span class="okmsg">онлайн</span>' : '<span class="warn">офлайн</span>');
+    return '<tr data-i="' + i + '"><td style="text-align:center"><input type="checkbox" data-k="on"' + (x.on ? ' checked' : '') + (x.missing ? ' disabled' : '') + '></td>' +
+      '<td><input type="text" data-k="name" maxlength="30" value="' + esc(x.name || '') + '" placeholder="' + esc(x.ha || x.ent.slice(7)) + '" title="Подпись плитки на телевизоре"></td>' +
+      '<td><code>' + esc(x.ent) + '</code>' + (x.ha || x.brand ? '<div class="hint">' + esc([x.ha, x.brand].filter(Boolean).join(' · ')) + '</div>' : '') + '</td>' +
+      '<td style="text-align:center">' + st + '</td>' +
+      '<td style="white-space:nowrap">' + (x.missing ? '' : '<button type="button" data-a="snap">Снимок</button> ') +
+      '<button type="button" data-a="up" title="Выше">▲</button><button type="button" data-a="down" title="Ниже">▼</button>' +
+      (x.missing ? ' <button type="button" data-a="del">Удалить</button>' : '') + '</td></tr>';
+  }).join('') + '</table>';
+}
+function camsCollect() {
+  if (!CAMS) { return; }
+  Array.prototype.forEach.call($('camsList').querySelectorAll('tr[data-i]'), function (tr) {
+    var x = CAMS.rows[+tr.getAttribute('data-i')];
+    x.on = tr.querySelector('[data-k="on"]').checked;
+    x.name = tr.querySelector('[data-k="name"]').value.trim();
+  });
+}
+function camsLoad() {
+  return api('GET', '/api/cams/list').then(function (r) {
+    CAMS = r; CAMS_DIRTY = false;
+    if (!$('camsForm').getAttribute('data-dirty')) { $('camsForm').elements.fps.value = r.fps; }
+    camsRender();
+  }).catch(function (e) { flash('camsMsg', 'Ошибка: ' + esc(e.message)); });
+}
+$('camsReload').addEventListener('click', function () { CAMS_DIRTY = false; camsLoad().then(function () { flash('camsMsg', '<span class="okmsg">Список обновлён из HA</span>', 3000); }); });
+$('camsList').addEventListener('change', function () { camsCollect(); CAMS_DIRTY = true; camsRender(); });
+$('camsList').addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-a]');
+  if (!b) { return; }
+  var tr = b.closest('tr'), i = +tr.getAttribute('data-i'), a = b.getAttribute('data-a'), x = CAMS.rows[i];
+  camsCollect();
+  if (a === 'snap') {
+    flash('camsMsg', 'Снимок ' + esc(x.ent) + '…');
+    fetch('api/cams/frame.jpg?ent=' + encodeURIComponent(x.ent) + '&t=' + Date.now(), { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) { return r.json().then(function (j) { throw new Error(j.error || ('HTTP ' + r.status)); }); }
+      return r.blob();
+    }).then(function (bl) {
+      var img = $('camsImg'); img.src = URL.createObjectURL(bl); img.classList.remove('hidden'); flash('camsMsg', '');
+    }).catch(function (err) { flash('camsMsg', esc(err.message)); });
+    return;
+  }
+  if (a === 'up' || a === 'down') {
+    var j = a === 'up' ? i - 1 : i + 1;
+    if (j < 0 || j >= CAMS.rows.length) { return; }
+    CAMS.rows[i] = CAMS.rows[j]; CAMS.rows[j] = x;
+    CAMS_DIRTY = true; camsRender();
+    return;
+  }
+  if (a === 'del') { CAMS.rows.splice(i, 1); CAMS_DIRTY = true; camsRender(); flash('camsMsg', 'Удалится после «Сохранить»', 4000); }
+});
+$('camsForm').addEventListener('input', function () { $('camsForm').setAttribute('data-dirty', '1'); });
+$('camsForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  camsCollect();
+  var items = CAMS ? CAMS.rows.filter(function (x) { return x.on || x.name || x.saved; }).map(function (x) { return { ent: x.ent, name: x.name, on: x.on }; }) : [];
+  api('POST', '/api/settings', { CAMS: { fps: $('camsForm').elements.fps.value, items: items } }).then(function () {
+    $('camsForm').removeAttribute('data-dirty'); CAMS_DIRTY = false;
+    flash('camsMsg', '<span class="okmsg">Сохранено — телевизоры увидят после перезапуска приложения</span>', 5000);
+    return camsLoad();
+  }).catch(function (err) { flash('camsMsg', 'Ошибка: ' + esc(err.message)); });
+});
+try { if (localStorage.getItem('arctv.camsOpen')) { camsFold(true); } } catch (e) {}
 setInterval(function () { if (!document.hidden && SESSION && SESSION.logged && !$('doorBody').classList.contains('hidden')) {
   api('GET', '/api/door/status').then(function (st) { DOOR_ST = st; doorRender(); }).catch(function () {});
 } }, 5000);
