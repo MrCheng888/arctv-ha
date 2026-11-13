@@ -209,7 +209,7 @@ async function route(req, res) {
     if (p === '/api/door/test' && m === 'POST') {
       const b = await readBody(req);
       if (!door.status().on) { send(res, 409, { error: 'Сначала включите домофон и сохраните' }); return; }
-      if (b.event === 'ring') { door.ring('test'); } else { door.end('test'); }
+      if (b.event === 'ring') { door.ring('test'); } else if (b.event === 'dismiss') { door.event({ event: 'dismiss', reason: b.reason || 'test' }); } else { door.end('test'); }
       send(res, 200, door.status());
       return;
     }
