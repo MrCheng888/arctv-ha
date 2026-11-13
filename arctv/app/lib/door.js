@@ -78,12 +78,18 @@ function ring(door) {
 // Статус, уже поставленный кнопкой с телевизора (тот же скрипт присылает dismiss следом), не перетираем.
 function dismiss(reason) {
   if (!S.active) { return; }
-  if (dismissTimer) { clearTimeout(dismissTimer); }
-  if (S.status !== 'opening' && S.status !== 'hangup') { S.status = reason === 'open' ? 'opening' : 'hangup'; }
+  // открытие двери важнее сброса: после «Вызов сброшен» дверь можно открыть (зелёная остаётся, 0.8.8)
+  if (reason === 'open') { S.status = 'opening'; } else if (S.status !== 'opening') { S.status = 'hangup'; }
   S.statusAt = Date.now();
   log('dismiss', reason || '');
   bump();
-  dismissTimer = setTimeout(() => { dismissTimer = null; end(reason || 'dismiss'); }, S.status === 'opening' ? DISMISS_OPEN_MS : DISMISS_MS);
+  closeLater(reason || 'dismiss');
+}
+
+// Окно закрыть позже: через 5 с после открытия двери, через 10 с после сброса
+function closeLater(reason) {
+  if (dismissTimer) { clearTimeout(dismissTimer); }
+  dismissTimer = setTimeout(() => { dismissTimer = null; end(reason); }, S.status === 'opening' ? DISMISS_OPEN_MS : DISMISS_MS);
 }
 
 function end(reason) {
@@ -139,7 +145,10 @@ async function command(dev, cmd) {
   const script = cmd === 'open' ? cfg().open : cfg().hangup;
   try {
     await ha('POST', '/services/script/turn_on', { entity_id: script });
-    S.status = cmd === 'open' ? 'opening' : 'hangup'; S.statusAt = Date.now(); S.haErr = '';
+    // сброс не перетирает «Открываю дверь…»; открытие после сброса — да (0.8.8), и окно тогда закроется через 5 с
+    if (cmd === 'open') { S.status = 'opening'; if (dismissTimer) { closeLater('open'); } }
+    else if (S.status !== 'opening') { S.status = 'hangup'; }
+    S.statusAt = Date.now(); S.haErr = '';
     log(cmd === 'open' ? 'открыть дверь' : 'сбросить вызов', '— телевизор', dev);
     bump();
     return { ok: true };
