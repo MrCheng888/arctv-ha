@@ -9,7 +9,8 @@ const store = require('./store');
 const BASE = process.env.HA_API_URL || 'http://supervisor/core/api';
 const TOKEN = () => process.env.SUPERVISOR_TOKEN || process.env.HA_TOKEN || '';
 const SAFETY_MS = 150000;     // нет «end» от HA — окно закрывается само через 2,5 мин после последнего звонка
-const DISMISS_MS = 10000;     // dismiss: кнопки убрать сразу, окно закрыть через 10 с
+const DISMISS_MS = 10000;     // dismiss: кнопки убрать сразу, окно закрыть через 10 с после сброса
+const DISMISS_OPEN_MS = 5000; // … и через 5 с после открытия двери (0.8.4)
 
 // Кадров в секунду (настройка «Домофон» на странице, 0.8.0): 0 — без картинки, обычно 1–2
 function fps() {
@@ -82,7 +83,7 @@ function dismiss(reason) {
   S.statusAt = Date.now();
   log('dismiss', reason || '');
   bump();
-  dismissTimer = setTimeout(() => { dismissTimer = null; end(reason || 'dismiss'); }, DISMISS_MS);
+  dismissTimer = setTimeout(() => { dismissTimer = null; end(reason || 'dismiss'); }, S.status === 'opening' ? DISMISS_OPEN_MS : DISMISS_MS);
 }
 
 function end(reason) {

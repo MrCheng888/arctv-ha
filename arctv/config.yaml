@@ -1,5 +1,5 @@
 name: ArcTV
-version: "0.8.3"
+version: "0.8.4"
 slug: arctv
 description: Домашний сервер IPTV для телевизоров Samsung (Tizen и Orsay)
 url: https://github.com/MrCheng888/arctv-ha
