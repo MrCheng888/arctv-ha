@@ -204,9 +204,25 @@ async function load(url, targets, opt) {
 
 // Текст для телевизора: строка на канал «tvgId<TAB>JSON-массив [[s,e,t],...]».
 // Телевизор разбирает его по строкам порциями, не замирая.
+// 0.8.11: передача не может длиться дальше начала следующей — у провайдера бывают ошибки в конце
+// (HGTV HD: «Охотники за недвижимостью» 04:30 – 05:00 следующего дня), и телевизор считал такую передачу
+// идущей весь день: список программ открывался на 04:30, OK запускал архив с 04:30. Обрезаем при выдаче,
+// так что исправляется и программа из кэша, без нового скачивания.
+function clipEnds(arr) {
+  let out = null;
+  for (let k = 0; k < arr.length - 1; k++) {
+    if (arr[k][1] > arr[k + 1][0] && arr[k + 1][0] > arr[k][0]) {
+      if (!out) { out = arr.slice(); }
+      out[k] = [arr[k][0], arr[k + 1][0]].concat(arr[k].slice(2));
+    }
+  }
+  return out || arr;
+}
+
 function toLines(data, from, to) {
   const out = [];
-  for (const [id, arr] of data) {
+  for (const [id, all] of data) {
+    const arr = clipEnds(all);
     const part = from || to ? arr.filter((p) => p[1] > (from || 0) && p[0] < (to || Infinity)) : arr;
     if (part.length) { out.push(id.replace(/[\t\n]/g, ' ') + '\t' + JSON.stringify(part)); }
   }
