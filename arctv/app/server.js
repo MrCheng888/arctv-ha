@@ -15,10 +15,12 @@ const epg = require('./lib/epg');
 const holidays = require('./lib/holidays');
 const door = require('./lib/door');
 const cams = require('./lib/cams');
+const peer = require('./lib/peer');
 
 const VERSION = require('./package.json').version;
 const PORT = parseInt(process.env.PORT || '8090', 10);
 const PAGE = path.join(__dirname, 'public', 'index.html');
+const STARTED = Date.now();     // когда запущен (1.0.1: NAS сообщает HA — работал ли без перерыва с прошлой отправки)
 
 function ip(req) { return (req.socket.remoteAddress || '').replace(/^::ffff:/, ''); }
 
@@ -54,13 +56,13 @@ function sendGz(req, res, gz, type, extra) {
   }
 }
 
-function readBody(req) {
+function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > 256 * 1024) { reject(new Error('Слишком большой запрос')); req.destroy(); return; }
+      if (size > (limit || 256 * 1024)) { reject(new Error('Слишком большой запрос')); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => {
@@ -240,6 +242,51 @@ async function route(req, res) {
     if (!cams.haReady()) { send(res, 200, { fps: cams.fps(), ha: false, rows: [] }); return; }
     try { send(res, 200, await cams.pageList()); } catch (e) { send(res, 502, { error: e.message }); }
     return;
+  }
+
+  // ----- запасной сервер (1.0.1, lib/peer.js) -----
+  // На NAS: HA спрашивает состояние и отправляет данные; ключ — в заголовке X-ArcTV-Key
+  if (p === '/api/peer/info' || p === '/api/peer/import') {
+    if (!store.isReplica()) { send(res, 403, { error: 'Это не запасной сервер: на его странице не вписан ключ основного', nokey: true }); return; }
+    if (!peer.keyOk(req.headers['x-arctv-key'])) { send(res, 403, { error: 'Неверный ключ' }); return; }
+    const s0 = store.getSettings();
+    if (m === 'GET' && p === '/api/peer/info') {
+      send(res, 200, { ok: true, proto: peer.PROTO, version: VERSION, startedAt: STARTED, syncAt: s0._syncAt || 0, dataAt: s0._dataAt || 0, closed: store.closedConfig() });
+      return;
+    }
+    if (m === 'POST') {
+      const b = await readBody(req, 32 * 1024 * 1024);
+      if (b.proto !== peer.PROTO) { send(res, 409, { error: 'Другая версия протокола: обновите оба сервера' }); return; }
+      if (b.kind === 'closed') {
+        store.importClosed(b.closed);
+        cache.log('С основного сервера: закрытые группы');
+      } else if (b.kind === 'full') {
+        const before = JSON.stringify([s0.SOURCES, s0.EPG_PAST_HOURS, s0.EPG_FUTURE_HOURS]), idsBefore = s0.SOURCES.map((x) => x.id);
+        if (!store.importFull(b.data)) { send(res, 400, { error: 'Неполные данные' }); return; }
+        if (b.data.auth) { auth.importAccount(b.data.auth); }
+        const s1 = store.getSettings(), idsAfter = new Set(s1.SOURCES.map((x) => x.id));
+        for (const old of idsBefore) { if (!idsAfter.has(old)) { cache.forget(old); } }
+        if (JSON.stringify([s1.SOURCES, s1.EPG_PAST_HOURS, s1.EPG_FUTURE_HOURS]) !== before) { cache.refresh(); } else { cache.schedule(); }
+        cache.log('С основного сервера: все данные (копия прежних — data/backup)');
+      } else { send(res, 400, { error: 'Что отправлено?' }); return; }
+      dropClosedFavs();
+      const s2 = store.getSettings();
+      send(res, 200, { ok: true, syncAt: s2._syncAt || 0, dataAt: s2._dataAt || 0, closed: store.closedConfig() });
+      return;
+    }
+  }
+  // Для страницы: состояние, кнопка «Отправить на NAS», адрес NAS (на HA), ключ основного (на NAS)
+  if (p.indexOf('/api/peer/') === 0) {
+    if (!authorized(req)) { needAuth(res); return; }
+    if (m === 'GET' && p === '/api/peer/status') { if (q.get('check')) { await peer.check(); } send(res, 200, peer.status()); return; }
+    if (m === 'POST' && p === '/api/peer/push') { const r = await peer.pushNow(); send(res, r.error ? 409 : 200, r); return; }
+    if (m === 'POST' && p === '/api/peer/config') {
+      const b = await readBody(req);
+      if ('replicaKey' in b) { store.setReplica({ key: b.replicaKey || '' }); }
+      if ('url' in b) { peer.setUrl(String(b.url || '')); }
+      send(res, 200, peer.status());
+      return;
+    }
   }
 
   // ----- для телевизора -----
@@ -598,7 +645,8 @@ function settingsForPage(id) {
   const s = store.getSettings(), o = {};
   for (const k of store.SOURCE_KEYS.concat(store.COMMON_KEYS)) { o[k] = s[k]; }
   if (id) { Object.assign(o, store.plSettings(id)); }
-  return { values: o, pl: id, deviceKeys: store.DEVICE_KEYS, accents: store.ACCENTS };
+  // replica — запасной сервер (1.0.1): закрытые группы на странице только для просмотра
+  return { values: o, pl: id, deviceKeys: store.DEVICE_KEYS, accents: store.ACCENTS, replica: store.isReplica(), syncAt: s._syncAt || 0 };
 }
 
 const server = http.createServer((req, res) => {
@@ -615,6 +663,7 @@ server.listen(PORT, () => {
   // домофон: вдруг вызов уже идёт (сервер перезапустили во время звонка); ключ для HA создаётся сам
   door.key();
   setTimeout(() => { door.check(); }, 5000);
+  peer.start(cache.log);
 });
 
 function shutdown() {

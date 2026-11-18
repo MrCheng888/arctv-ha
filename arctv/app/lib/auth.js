@@ -51,4 +51,13 @@ function dropSession(token) { if (auth && auth.sessions && auth.sessions[token])
 // Сменили логин или пароль — выходим везде, кроме текущей сессии
 function keepOnly(token) { auth.sessions = token && auth.sessions[token] ? { [token]: auth.sessions[token] } : {}; save(); }
 
-module.exports = { hasAccount, user, check, setAccount, newSession, validSession, dropSession, keepOnly, SESSION_HOURS };
+// Запасной сервер (1.0.1): логин и хэш пароля передаются на NAS (без сессий; свои сессии NAS сохраняет)
+function exportAccount() { return hasAccount() ? { user: auth.user, salt: auth.salt, hash: auth.hash } : null; }
+function importAccount(a) {
+  if (!a || typeof a.user !== 'string' || !/^[0-9a-f]{16,64}$/.test(String(a.salt)) || !/^[0-9a-f]{64}$/.test(String(a.hash))) { return false; }
+  auth = { user: a.user.trim().slice(0, 40), salt: a.salt, hash: a.hash, sessions: (auth && auth.sessions) || {} };
+  save();
+  return true;
+}
+
+module.exports = { exportAccount, importAccount, hasAccount, user, check, setAccount, newSession, validSession, dropSession, keepOnly, SESSION_HOURS };

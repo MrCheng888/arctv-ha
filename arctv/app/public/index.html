@@ -147,6 +147,11 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
   .src-body.xt { grid-template-columns: 1fr; }
   .src-head input[type=text] { width: 120px; }
 }
+.ro-note { background: rgba(242,153,74,.12); border: 1px solid rgba(242,153,74,.45); border-radius: 6px; padding: 8px 10px; margin: 6px 0 10px; font-size: 13px; }
+.ro-hint { color: #f2994a; }
+.peer-st { margin: 8px 0; }
+.peer-st b.ok { color: #2fa84f; } .peer-st b.bad { color: #e0245e; } .peer-st b.mid { color: #f2994a; }
+input[readonly] { opacity: .6; }
 </style>
 </head>
 <body>
@@ -177,6 +182,11 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
     </div>
   </section>
 
+  <section id="peerSec" class="hidden">
+    <h2>Запасной сервер</h2>
+    <div id="peerBox"></div>
+  </section>
+
   <section>
     <h2>Источники</h2>
     <p class="sub">Только здесь. Телевизоры получают готовый плейлист и программу передач с сервера.</p>
@@ -192,6 +202,7 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
       <label>Слова закрытых групп <input type="text" name="ADULT_KEYWORDS"><div class="hint">Через запятую, ищутся в названии группы — такие группы закрыты сами.</div></label>
       <div class="wide divider"></div>
       <div class="wide"><label id="grpLabel">Группы</label><div class="pltabs"></div>
+        <div class="ro-note hidden" data-ro></div>
         <div class="hint" style="margin-bottom:6px"><b>Основные</b> видны всегда. <b>Расширенные</b> — только в расширенном режиме (Tools на телевизоре, без пароля). <b>Закрытые</b> — скрыты, открываются PIN; группы со словами выше закрыты сами (строка серая). <b>Скрытые</b> — телевизорам не отдаются вовсе, номера остальных сдвигаются. Порядок на телевизоре: основные → расширенные → закрытые. Новые группы от провайдера попадают в основные.</div>
         <div id="grpList" class="grp-list"></div></div>
       <div class="row wide"><button class="primary" type="submit">Сохранить</button><span id="srcMsg" class="muted"></span></div>
@@ -271,6 +282,7 @@ h2.fold .arr2 { display: inline-block; width: 16px; color: var(--mute); }
   <section>
     <h2>Телевизоры</h2>
     <p class="sub">У каждого телевизора свои настройки плеера и цвет. Их же можно менять в Tools на самом телевизоре. Плейлист сервер отдаёт только разрешённым телевизорам: новый появится здесь с кнопкой «Разрешить».</p>
+    <div class="ro-note hidden" data-ro></div>
     <div id="tvs" class="muted">Пока ни один телевизор не подключался.</div>
   </section>
 
@@ -366,6 +378,8 @@ function showApp() {
   loadSettings();
   load();
   holLoad();
+  peerLoad(true);
+  if (!peerTimer) { peerTimer = setInterval(function () { peerLoad(); }, 30000); }
 }
 function start() {
   api('GET', '/api/session').then(function (s) {
@@ -541,7 +555,7 @@ function renderTvs() {
       '<label>Скрытие списка каналов, с <input type="number" data-f="CHLIST_HIDE_SEC" min="5" max="120" value="' + d.set.CHLIST_HIDE_SEC + '"><div class="hint">Список поверх видео закроется сам.</div></label>' +
       '<label>Прозрачность окон, % <input type="number" data-f="OVERLAY_OPACITY" min="50" max="95" step="5" value="' + d.set.OVERLAY_OPACITY + '"><div class="hint">Непрозрачность окон; заголовок окна на 10 плотнее.</div></label>' +
       '<label class="chk"><input type="checkbox" data-f="START_LOW_BITRATE"' + (d.set.START_LOW_BITRATE ? ' checked' : '') + '> Начинать с низкого качества</label>' +
-      '<div><label class="chk"><input type="checkbox" data-c="closedAllowed"' + (d.closedAllowed !== false ? ' checked' : '') + '> Закрытые группы (по PIN)</label><div class="hint">Снять — этот телевизор не получает их каналы вовсе.</div></div>' +
+      '<div><label class="chk"><input type="checkbox" data-c="closedAllowed"' + (d.closedAllowed !== false ? ' checked' : '') + (SET && SET.replica ? ' disabled' : '') + '> Закрытые группы (по PIN)</label><div class="hint">' + (SET && SET.replica ? '<span class="ro-hint">' + esc(roText()) + '</span>' : 'Снять — этот телевизор не получает их каналы вовсе.') + '</div></div>' +
       '<div><label class="chk"><input type="checkbox" data-c="extAllowed"' + (d.extAllowed !== false ? ' checked' : '') + '> Расширенные группы</label><div class="hint">Снять — этот телевизор не получает их каналы, в Tools нет «Расширенного режима».</div></div>' +
       '<div><label class="chk"><input type="checkbox" data-c="door"' + (d.door === true ? ' checked' : '') + '> Домофон</label><div class="hint">Окно звонка в дверь поверх эфира (раздел «Домофон»).</div></div>' +
       '<div><label class="chk"><input type="checkbox" data-c="cams"' + (d.cams === true ? ' checked' : '') + '> Камеры</label><div class="hint">Плитка «Камеры» на экране групп (раздел «Камеры»).</div></div>' +
@@ -694,6 +708,83 @@ $('holSave').addEventListener('click', function () {
     .catch(function (e) { $('holMsg').textContent = 'Ошибка: ' + e.message; });
 });
 
+// ----- запасной сервер (1.0.1) -----
+// На NAS закрытые группы только для просмотра: подпись у каждого такого пункта и время последней синхронизации
+function roText() {
+  return 'Изменяется только на основном сервере (Home Assistant). Последняя синхронизация с HA: ' + (SET && SET.syncAt ? dtMs(SET.syncAt) : 'ещё не было') + '.';
+}
+function dtMs(ms) { return dt(Math.floor(ms / 1000)); }
+function applyRo() {
+  var ro = !!(SET && SET.replica);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ro]'), function (el) {
+    el.classList.toggle('hidden', !ro);
+    if (ro) { el.innerHTML = '<b>Закрытые группы</b> (галочки «Закрытая», слова, PIN, флажок «Закрытые группы» у телевизоров): ' + esc(roText()); }
+  });
+  ['ADULT_KEYWORDS', 'ADULT_PIN'].forEach(function (n) {
+    var el = document.querySelector('[name="' + n + '"]'); if (!el) { return; }
+    el.readOnly = ro;
+    var lab = el.closest('label'), h = lab && lab.querySelector('.ro-hint');
+    if (ro && lab && !h) { h = document.createElement('div'); h.className = 'hint ro-hint'; lab.appendChild(h); }
+    if (h) { h.textContent = ro ? roText() : ''; h.classList.toggle('hidden', !ro); }
+  });
+}
+
+var PEER = null, peerTimer = null;
+function peerLoad(check) {
+  return api('GET', '/api/peer/status' + (check ? '?check=1' : '')).then(function (s) { PEER = s; renderPeer(); }).catch(function () {});
+}
+function renderPeer() {
+  var p = PEER; if (!p) { return; }
+  $('peerSec').classList.remove('hidden');
+  var box = $('peerBox'), h = '';
+  if (p.role === 'replica') {
+    h = '<p class="sub">Это <b>запасной</b> сервер: данные приходят с основного (Home Assistant) — раз в час, пока этот сервер работает, или кнопкой «Отправить на NAS» на странице основного. Изменения, сделанные здесь, при следующей отправке затираются. Закрытые группы здесь только для просмотра.</p>' +
+      '<div class="peer-st">Последняя синхронизация с HA: <b>' + (p.mySyncAt ? esc(dtMs(p.mySyncAt)) : 'ещё не было') + '</b></div>' +
+      '<div class="row"><label style="margin:0">Ключ основного сервера <input type="text" id="peerKey" placeholder="ключ со страницы HA" style="width:320px"></label>' +
+      '<button type="button" id="peerKeySave">Сменить ключ</button><span id="peerMsg" class="muted"></span></div>';
+  } else if (p.role === 'primary') {
+    var cls = p.state === 'ok' ? 'ok' : (p.state === 'off' || p.state === '' ? 'mid' : 'bad');
+    var stTxt = p.state === 'ok' ? 'на связи, версия ' + esc(p.ver) : (p.state === '' ? 'проверяю…' : esc(p.msg));
+    h = '<p class="sub">NAS получает данные с этого сервера: <b>раз в час</b>, пока NAS работает без перерыва; если NAS был выключен — только кнопкой ниже (после неё — снова раз в час). Закрытые группы уходят на NAS сразу, как только расходятся. Только в одну сторону: изменения на NAS затираются.</p>' +
+      '<div class="peer-st">NAS: <b class="' + cls + '">' + stTxt + '</b>' + (p.checkedAt ? ' <span class="muted">· проверено ' + ago(p.checkedAt) + '</span>' : '') + '</div>' +
+      (p.state === 'ok' ? '<div class="peer-st">Последняя синхронизация: <b>' + (p.syncAt ? esc(dtMs(p.syncAt)) : 'ещё не было') + '</b>' +
+        (p.closedOk === true ? ' · закрытые группы на NAS совпадают' : (p.closedOk === false ? ' · <b class="bad">закрытые группы на NAS не обновились</b>' : '')) + '</div>' : '') +
+      (p.push && !p.push.ok ? '<div class="err">Последняя отправка (' + esc(ago(p.push.at)) + '): ' + esc(p.push.msg) + '</div>' : '') +
+      '<div class="row"><button class="primary" type="button" id="peerPush"' + (p.state === 'ok' ? '' : ' disabled') + '>Отправить на NAS</button><span id="peerMsg" class="muted"></span></div>' +
+      '<details style="margin-top:10px"><summary style="cursor:pointer">Адрес и ключ</summary>' +
+      '<div class="row"><label style="margin:0">Адрес NAS <input type="text" id="peerUrl" value="' + esc(p.url) + '" style="width:260px"></label><button type="button" id="peerUrlSave">Сохранить</button></div>' +
+      '<div class="hint">Ключ — один раз вписать на странице NAS (блок «Запасной сервер»): <code id="peerKeyShow">' + esc(p.key) + '</code> <button type="button" id="peerCopy">Копировать</button></div></details>';
+  } else {
+    h = '<p class="sub">Не настроен. Если это <b>основной</b> сервер — впишите адрес запасного (NAS). Если это <b>запасной</b> — впишите ключ со страницы основного: после этого закрытые группы здесь станут только для просмотра.</p>' +
+      '<div class="row"><label style="margin:0">Адрес запасного <input type="text" id="peerUrl" placeholder="http://192.168.1.250:18090" style="width:260px"></label><button type="button" id="peerUrlSave">Это основной</button></div>' +
+      '<div class="row"><label style="margin:0">Ключ основного <input type="text" id="peerKey" style="width:320px"></label><button type="button" id="peerKeySave">Это запасной</button><span id="peerMsg" class="muted"></span></div>';
+  }
+  if (!box.querySelector('input:focus')) { box.innerHTML = h; }
+}
+$('peerBox').addEventListener('click', function (e) {
+  var id = e.target.id;
+  if (id === 'peerPush') {
+    var p = PEER, c = p.counts || {};
+    var warn = p.dataAt && p.syncAt && p.dataAt > p.syncAt + 5000 ? '\n\nНа NAS есть изменения от ' + dtMs(p.dataAt) + ' — они будут затёрты.' : '';
+    if (!confirm('Отправить на NAS? Там будут заменены:\n• Избранное — ' + c.fav + ' каналов\n• сохранения — ' + c.saves + '\n• телевизоры — ' + c.tvs + '\n• плейлисты (' + c.pls + ') и все настройки\n• логин и пароль страницы' + warn)) { return; }
+    e.target.disabled = true; flash('peerMsg', 'Отправляю…');
+    api('POST', '/api/peer/push').then(function (r) { PEER = r.status; renderPeer(); flash('peerMsg', '<span class="okmsg">NAS принял</span>', 5000); })
+      .catch(function (err) { flash('peerMsg', 'Ошибка: ' + esc(err.message)); peerLoad(); });
+  }
+  if (id === 'peerUrlSave') {
+    api('POST', '/api/peer/config', { url: $('peerUrl').value.trim() }).then(function (s) { PEER = s; renderPeer(); setTimeout(function () { peerLoad(); }, 1500); });
+  }
+  if (id === 'peerKeySave') {
+    var k = $('peerKey').value.trim();
+    if (!/^[\w-]{16,64}$/.test(k)) { flash('peerMsg', 'Ключ — 16–64 знака, как на странице HA'); return; }
+    api('POST', '/api/peer/config', { replicaKey: k }).then(function (s) { PEER = s; renderPeer(); loadSettings(); flash('peerMsg', '<span class="okmsg">Сохранено</span>', 3000); });
+  }
+  if (id === 'peerCopy') {
+    var t = $('peerKeyShow').textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { e.target.textContent = 'Скопировано'; }, function () { prompt('Ключ:', t); });
+  }
+});
+
 function load() {
   if (!$('doorBody').classList.contains('hidden')) { doorLoad(); }
   return api('GET', '/api/status').then(function (s) { S = s; PL = s.pl || 0; renderStatus(); });
@@ -841,7 +932,7 @@ document.addEventListener('click', function (e) {
   load().then(loadSettings);
 });
 function loadSettings() {
-  api('GET', '/api/settings').then(function (s) { SET = s; if (!PL && s.pl) { PL = s.pl; } fillForm($('srcForm'), s.values); fillForm($('comForm'), s.values); renderGroups(); if (S) { renderChannels(); } });
+  api('GET', '/api/settings').then(function (s) { SET = s; if (!PL && s.pl) { PL = s.pl; } fillForm($('srcForm'), s.values); fillForm($('comForm'), s.values); applyRo(); renderGroups(); if (S) { renderChannels(); renderTvs(); } });
 }
 
 // Группы плейлиста (в порядке плейлиста): основная / расширенная / закрытая. Закрытые по словам — серые.
@@ -860,7 +951,9 @@ function renderGroups() {
       '<span class="cnt">' + cnt[g] + '</span>' + (gn[g] ? '<div class="gorig">у провайдера: ' + esc(g) + '</div>' : '') + '</td>' +
       ['main', 'ext', 'closed', 'hidden'].map(function (k) {
         // закрытую по словам можно только оставить закрытой или скрыть совсем
-        return '<td class="k"><input type="radio" name="gk' + i + '" value="' + k + '"' + (kind === k ? ' checked' : '') + (auto && (k === 'main' || k === 'ext') ? ' disabled' : '') + '></td>';
+        // на запасном (1.0.1): «Закрытая» не выбирается, закрытую вручную нельзя сделать основной или расширенной
+        var ro = SET.replica && (k === 'closed' || (kind === 'closed' && (k === 'main' || k === 'ext')));
+        return '<td class="k"><input type="radio" name="gk' + i + '" value="' + k + '"' + (kind === k ? ' checked' : '') + ((auto && (k === 'main' || k === 'ext')) || ro ? ' disabled' : '') + (ro ? ' title="Изменяется только на основном сервере (Home Assistant)"' : '') + '></td>';
       }).join('') + '<td class="mv"><button class="arr" type="button" data-mv="-1" title="Выше">▲</button><button class="arr" type="button" data-mv="1" title="Ниже">▼</button></td></tr>';
   }).join('') + '</table>' + ((SET.values.GROUP_ORDER || []).length ? '<button class="reset" type="button" id="grpReset" style="margin:8px 0 0 0">Вернуть исходный порядок групп</button>' : '') +
     '<div class="hint">⋮⋮ или ▲▼ — порядок групп на телевизорах (сохраняется сразу). Основные, расширенные и закрытые всё равно идут блоками, внутри блока — в этом порядке. ' +

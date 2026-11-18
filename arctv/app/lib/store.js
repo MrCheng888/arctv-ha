@@ -65,7 +65,11 @@ const DEFAULTS = {
   DOOR: { on: false, camera: 'camera.entrance_mediaprofile_channel1_mainstream', timer: 'timer.vyzov_v_dver',
     open: 'script.entrance_open_door_hangup', hangup: 'script.entrance_hangup', fps: 1, key: '' },
   // Камеры (0.8.1, lib/cams.js): fps — кадров в секунду при просмотре; items — выбранные camera.* из HA
-  CAMS: { fps: 2, items: [] }
+  CAMS: { fps: 2, items: [] },
+  // Запасной сервер (1.0.1, lib/peer.js). PEER — на основном (HA): адрес NAS и ключ (создаётся сам);
+  // REPLICA — на запасном (NAS): ключ основного (вписывается на странице NAS). Не передаются при отправке.
+  PEER: { url: '', key: '' },
+  REPLICA: { key: '' }
 };
 // Свои у каждого плейлиста (settings.PL[id]); до 0.6.1 были общими — переносятся в плейлист № 1
 const PL_DEFAULTS = {
@@ -125,6 +129,15 @@ function cleanValue(k, v) {
     return out;
   }
   if (k === 'HOLIDAYS') { return holidays.clean(v); }
+  if (k === 'PEER') {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
+    const url = String(v.url || '').trim().replace(/\/+$/, '').slice(0, 200);
+    return { url: /^https?:\/\/[\w.\-]+(:\d+)?$/.test(url) ? url : '', key: /^[\w-]{16,64}$/.test(String(v.key || '')) ? String(v.key) : '' };
+  }
+  if (k === 'REPLICA') {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
+    return { key: /^[\w-]{16,64}$/.test(String(v.key || '').trim()) ? String(v.key).trim() : '' };
+  }
   if (k === 'CAMS') {                                // {fps, items: [{ent, name, on}]}; имена включённых — разные
     if (!v || typeof v !== 'object' || Array.isArray(v)) { return undefined; }
     let fps = parseInt(v.fps, 10);
@@ -206,8 +219,8 @@ function cleanPl(o) {
   return out;
 }
 
-function loadSettings() {
-  let s = readJson('settings.json', null);
+function loadSettings(from) {
+  let s = from || readJson('settings.json', null);
   const fresh = !s;
   if (fresh) {
     // первый запуск: начальные значения можно передать переменными окружения контейнера
@@ -228,6 +241,8 @@ function loadSettings() {
     out.SOURCES[0].epg = urlList(s.EPG_URLS);            // 0.6.0: программа была общей
   }
   out._holAt = +s._holAt || 0;
+  out._dataAt = +s._dataAt || 0;      // 1.0.1: последнее изменение данных людьми (для предупреждения при отправке на NAS)
+  out._syncAt = +s._syncAt || 0;      // 1.0.1, на NAS: последняя полная отправка с HA
   out._srcNext = Math.max(+s._srcNext || 1, ...out.SOURCES.map((x) => x.id + 1));
   // настройки групп: до 0.6.1 общие — теперь у плейлиста № 1 (или первого)
   out.PL = {};
@@ -277,31 +292,44 @@ function dropPl(id) {
 
 // Со страницы сервера: источники и общие настройки
 // pl — номер плейлиста для его настроек групп (CLOSED_GROUPS и т. д.)
+// На запасном (NAS, 1.0.1) закрытые группы — только просмотр: меняются только на основном (HA)
+const CLOSED_KEYS = ['ADULT_KEYWORDS', 'ADULT_PIN', 'CLOSED_GROUPS'];
+function isReplica() { return !!(settings.REPLICA && settings.REPLICA.key); }
+
 function saveSettings(input, pl) {
-  const now = Date.now();
+  const now = Date.now(), ro = isReplica();
+  let changed = false;
   if (pl) {
     const p = plSettings(pl);
     for (const k of PL_KEYS) {
       if (!(k in input)) { continue; }
+      if (ro && CLOSED_KEYS.indexOf(k) >= 0) { continue; }
       const v = cleanValue(k, input[k]);
-      if (v !== undefined) { p[k] = v; }
+      if (v !== undefined && JSON.stringify(v) !== JSON.stringify(p[k])) { p[k] = v; changed = true; }
     }
   }
   for (const k of SOURCE_KEYS.concat(COMMON_KEYS)) {
     if (!(k in input)) { continue; }
+    if (ro && CLOSED_KEYS.indexOf(k) >= 0) { continue; }
     let v = cleanValue(k, input[k]);
     if (v === undefined) { continue; }
     if (k === 'SOURCES') { v = numberSources(v); }
     if (k === 'DOOR' && !v.key && settings.DOOR) { v.key = settings.DOOR.key || ''; }   // ключ со страницы не стираем
     if (JSON.stringify(v) !== JSON.stringify(settings[k])) {
-      settings[k] = v;
+      settings[k] = v; changed = true;
       if (COMMON_KEYS.indexOf(k) >= 0) { settings._at[k] = now; }
       if (k === 'HOLIDAYS') { settings._holAt = now; }   // телевизоры заберут новый календарь
     }
   }
+  if (changed) { settings._dataAt = now; }
   writeSettings();
   return settings;
 }
+
+// Адрес NAS и ключ (страница HA) / ключ основного (страница NAS)
+function setPeer(v) { const c = cleanValue('PEER', Object.assign({}, settings.PEER, v)); if (c) { settings.PEER = c; writeSettings(); } return settings.PEER; }
+function setReplica(v) { const c = cleanValue('REPLICA', v); if (c) { settings.REPLICA = c; writeSettings(); } return settings.REPLICA; }
+function markData() { settings._dataAt = Date.now(); writeSettings(); }
 
 // ----- телевизоры -----
 // devices.json: dev -> {name, model, ip, ver, seen, set: {свои настройки}, at: {время изменения}}
@@ -371,7 +399,8 @@ function applyTvChanges(dev, changes) {
     if (COMMON_KEYS.indexOf(k) >= 0 && at > (settings._at[k] || 0)) { settings[k] = v; settings._at[k] = at; common = true; }
     else if (DEVICE_KEYS.indexOf(k) >= 0 && at > (d.at[k] || 0)) { d.set[k] = v; d.at[k] = at; own = true; }
   }
-  if (common) { writeSettings(); }
+  if (common || own) { settings._dataAt = Date.now(); }
+  if (common || own) { writeSettings(); }
   if (own) { saveDevices(true); }
   return deviceConfig(dev);
 }
@@ -380,10 +409,10 @@ function applyTvChanges(dev, changes) {
 function saveDevice(dev, input) {
   if (!devices[dev]) { return null; }
   const d = device(dev), now = Date.now();
-  if (input.remove) { delete devices[dev]; saveDevices(true); return true; }
+  if (input.remove) { delete devices[dev]; saveDevices(true); markData(); return true; }
   if (typeof input.name === 'string') { d.name = input.name.trim().slice(0, 40); }
   if (typeof input.allow === 'boolean') { d.allowed = input.allow; }
-  if (typeof input.closedAllowed === 'boolean') { d.closedAllowed = input.closedAllowed; }
+  if (typeof input.closedAllowed === 'boolean' && !isReplica()) { d.closedAllowed = input.closedAllowed; }
   if (typeof input.extAllowed === 'boolean') { d.extAllowed = input.extAllowed; }
   if (typeof input.door === 'boolean') { d.door = input.door; }
   if (typeof input.cams === 'boolean') { d.cams = input.cams; }
@@ -393,6 +422,7 @@ function saveDevice(dev, input) {
     if (v !== undefined && JSON.stringify(v) !== JSON.stringify(d.set[k])) { d.set[k] = v; d.at[k] = now; }
   }
   saveDevices(true);
+  markData();
   return d;
 }
 
@@ -416,9 +446,10 @@ if (!Array.isArray(state.saves)) { state.saves = []; }
 delete state.positions;   // автосохранение позиций из 0.3.0–0.3.1 больше не используется
 
 let saveTimer = null;
-function touch() {
+function touch(quiet) {
   state.rev = (state.rev || 0) + 1;
   state.updated = Date.now();
+  if (!quiet) { settings._dataAt = state.updated; dataDirty(); }
   // несколько изменений подряд пишутся на диск одним разом
   if (!saveTimer) {
     saveTimer = setTimeout(() => { saveTimer = null; writeAtomic('state.json', JSON.stringify(state)); }, 500);
@@ -435,7 +466,7 @@ function pruneSaves() {
   const before = state.saves.length;
   state.saves = state.saves.filter((v) => v && v.pos && v.pos >= now - (v.rec > 0 ? v.rec : 7) * 86400);
   if (state.saves.length > SAVES_MAX) { state.saves.length = SAVES_MAX; }
-  if (state.saves.length !== before) { touch(); }
+  if (state.saves.length !== before) { touch(true); }
 }
 
 function getState() { pruneSaves(); return state; }
@@ -478,7 +509,94 @@ function removeSave(id) {
   return true;
 }
 
+// ----- запасной сервер (1.0.1) -----
+// _dataAt пишется в settings.json не чаще раза в 5 с (Избранное и сохранения меняются часто)
+let dataTimer = null;
+function dataDirty() { if (!dataTimer) { dataTimer = setTimeout(() => { dataTimer = null; writeSettings(); }, 5000); } }
+
+// Что передаётся на NAS: всё, что меняют люди. Кэш плейлистов и программы — нет (NAS качает сам).
+function snapshot() {
+  flush();
+  const s = JSON.parse(JSON.stringify(settings));
+  delete s._legacyPassword; delete s.PEER; delete s.REPLICA; delete s._syncAt;
+  return { settings: s, devices: JSON.parse(JSON.stringify(devices)), state: JSON.parse(JSON.stringify(state)) };
+}
+
+// Закрытые группы: слова, PIN (и время его изменения), закрытые вручную у каждого плейлиста, флажок у телевизоров
+function closedConfig() {
+  const pl = {}, dev = {};
+  for (const id of Object.keys(settings.PL)) { pl[id] = (settings.PL[id].CLOSED_GROUPS || []).slice().sort(); }
+  for (const id of Object.keys(devices)) { dev[id] = devices[id].closedAllowed !== false; }
+  return { kw: (settings.ADULT_KEYWORDS || []).slice().sort(), pin: settings.ADULT_PIN, pinAt: settings._at.ADULT_PIN || 0, pl, dev };
+}
+// Совпадает ли у NAS (other) то, что задано здесь (на HA): плейлисты и телевизоры HA
+function closedSame(mine, other) {
+  if (!other || JSON.stringify(mine.kw) !== JSON.stringify(other.kw) || mine.pin !== other.pin) { return false; }
+  for (const id of Object.keys(mine.pl)) { if (JSON.stringify(mine.pl[id]) !== JSON.stringify((other.pl && other.pl[id]) || [])) { return false; } }
+  for (const id of Object.keys(mine.dev)) {
+    const o = other.dev && id in other.dev ? other.dev[id] : true;
+    if (mine.dev[id] !== o) { return false; }
+  }
+  return true;
+}
+
+// Копия данных перед приёмом (папка backup/<время>/, последние 5)
+function backup() {
+  const root = file('backup'), name = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
+  const dir = path.join(root, name);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of ['settings.json', 'devices.json', 'state.json', 'auth.json']) {
+    try { fs.copyFileSync(file(f), path.join(dir, f)); } catch (e) { /* нет файла */ }
+  }
+  const all = fs.readdirSync(root).filter((x) => /^\d{8}-\d{6}$/.test(x)).sort();
+  for (const old of all.slice(0, Math.max(0, all.length - 5))) { fs.rmSync(path.join(root, old), { recursive: true, force: true }); }
+}
+
+// Приём на NAS: только защита закрытых групп (не меняет время синхронизации)
+function importClosed(c) {
+  if (!c || typeof c !== 'object') { return false; }
+  const kw = cleanValue('ADULT_KEYWORDS', c.kw), pin = cleanValue('ADULT_PIN', c.pin);
+  if (kw) { settings.ADULT_KEYWORDS = kw; }
+  if (pin) { settings.ADULT_PIN = pin; settings._at.ADULT_PIN = +c.pinAt || settings._at.ADULT_PIN || 0; }
+  for (const id of Object.keys(c.pl || {})) {
+    const v = cleanValue('CLOSED_GROUPS', c.pl[id]);
+    if (v) { plSettings(id).CLOSED_GROUPS = v; }
+  }
+  for (const id of Object.keys(c.dev || {})) {
+    if (!/^[\w.\-]{1,80}$/.test(id)) { continue; }
+    if (!devices[id]) { devices[id] = { name: '', model: '', ip: '', ver: '', seen: 0, allowed: false, set: {}, at: {} }; }
+    devices[id].closedAllowed = c.dev[id] !== false;
+  }
+  writeSettings();
+  saveDevices(true);
+  return true;
+}
+
+// Приём на NAS: всё целиком, без перезапуска (файлы меняет сам сервер). Свои PEER / REPLICA остаются.
+function importFull(d) {
+  if (!d || !d.settings || typeof d.settings !== 'object' || !d.devices || typeof d.devices !== 'object' || !d.state || typeof d.state !== 'object') { return false; }
+  backup();
+  const keep = { PEER: settings.PEER, REPLICA: settings.REPLICA }, now = Date.now();
+  const s = loadSettings(JSON.parse(JSON.stringify(d.settings)));
+  delete s._legacyPassword;
+  Object.assign(s, keep, { _syncAt: now, _dataAt: now });
+  settings = s;
+  writeSettings();
+  const dv = {};
+  for (const id of Object.keys(d.devices)) { if (/^[\w.\-]{1,80}$/.test(id) && d.devices[id] && typeof d.devices[id] === 'object') { dv[id] = d.devices[id]; } }
+  devices = dv;
+  for (const id of Object.keys(devices)) { if (devices[id].allowed === undefined) { devices[id].allowed = true; } }
+  saveDevices(true);
+  const st = d.state;
+  state = { rev: Math.max(+state.rev || 0, +st.rev || 0) + 1, updated: now,
+    fav: st.fav && typeof st.fav === 'object' ? st.fav : {}, saves: Array.isArray(st.saves) ? st.saves : [] };
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  writeAtomic('state.json', JSON.stringify(state));
+  return true;
+}
+
 module.exports = {
+  isReplica, setPeer, setReplica, snapshot, closedConfig, closedSame, importClosed, importFull,
   DIR, writeAtomic, readText, readBuf, readJson, remove,
   getSettings, saveSettings, plSettings, dropPl, PL_KEYS, SOURCE_KEYS, COMMON_KEYS, DEVICE_KEYS, ACCENTS,
   seenDevice, listDevices, isAllowed, doorAllowed, camsAllowed, closedAllowed, extAllowed, deviceConfig, applyTvChanges, saveDevice,
