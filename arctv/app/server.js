@@ -664,6 +664,7 @@ server.listen(PORT, () => {
   door.key();
   setTimeout(() => { door.check(); }, 5000);
   peer.start(cache.log);
+  cams.start();
 });
 
 function shutdown() {

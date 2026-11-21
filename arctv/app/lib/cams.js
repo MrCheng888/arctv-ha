@@ -14,10 +14,13 @@ const DEAD = ['unavailable', 'unknown'];   // такие состояния HA �
 const cache = {};   // ent → {buf, at, inflight} — последний кадр камеры
 // 1.0.3: «онлайн» — не только по состоянию в HA. Интеграция ONVIF держит камеру в состоянии idle, даже когда
 // камера выключена (Dahua в это время честно unavailable) — плитка писала «онлайн». Теперь живое по состоянию
-// проверяется снимком (/camera_proxy — один кадр, не поток): не пришёл за 6 с — офлайн. Итог помнится минуту,
-// каждый кадр при просмотре его обновляет.
+// проверяется снимком (/camera_proxy — один кадр, не поток): не пришёл за 6 с — офлайн. Каждый кадр при просмотре
+// итог обновляет. 1.0.4: проверка — в фоне, раз в 2 мин (вход на экран камер в 1.0.3 ждал её до 6 с); список
+// отдаёт уже известное и не ждёт (только самый первый раз после запуска — не больше 1,5 с).
 const alive = {};   // ent → {ok, at, inflight}
-const ALIVE_MS = 60000;
+const ALIVE_MS = 150000;     // сколько итог считается свежим
+const WARM_MS = 120000;      // фоновая проверка
+const FIRST_WAIT_MS = 1500;
 
 function cfg() { return store.getSettings().CAMS || { fps: 2, items: [] }; }
 function haReady() { return !!TOKEN(); }
@@ -49,20 +52,44 @@ async function haStates() {
 function mark(ent, ok) { const a = alive[ent] || (alive[ent] = { ok: null, at: 0, inflight: null }); a.ok = ok; a.at = Date.now(); }
 
 // Отдаёт ли камера снимок (помним минуту; проверка одна на всех, кто спросил)
-function probe(ent) {
+function probe(ent, force) {
   const a = alive[ent] || (alive[ent] = { ok: null, at: 0, inflight: null });
-  if (a.at && Date.now() - a.at < ALIVE_MS) { return Promise.resolve(a.ok); }
+  if (!force && a.at && Date.now() - a.at < ALIVE_MS) { return Promise.resolve(a.ok); }
   if (!a.inflight) { a.inflight = frame(ent).then(() => true, () => false).then((ok) => { a.inflight = null; return ok; }); }
   return a.inflight;
+}
+
+// Онлайн ли камера сейчас — без ожидания: известный итог (устарел — проверка в фоне); не проверялась — ждём
+// снимок не дольше 1,5 с, иначе считаем живой по состоянию в HA
+function known(ent) {
+  const a = alive[ent];
+  if (a && a.at) {
+    if (Date.now() - a.at >= ALIVE_MS) { probe(ent); }
+    return Promise.resolve(a.ok);
+  }
+  return Promise.race([probe(ent), new Promise((res) => setTimeout(() => res(true), FIRST_WAIT_MS))]);
 }
 
 // Список для телевизора: включённые камеры, онлайн/офлайн (по состоянию в HA и снимку)
 async function tvList() {
   const st = await haStates();
   const list = enabled();
-  const ok = await Promise.all(list.map((x) => (!st[x.ent] || DEAD.indexOf(st[x.ent].state) >= 0 ? Promise.resolve(false) : probe(x.ent))));
+  const ok = await Promise.all(list.map((x) => (!st[x.ent] || DEAD.indexOf(st[x.ent].state) >= 0 ? Promise.resolve(false) : known(x.ent))));
   return list.map((x, i) => ({ i, name: x.name, online: ok[i] }));
 }
+
+// Фоновая проверка включённых камер (только когда есть доступ к HA и камеры выбраны)
+async function warm() {
+  if (!haReady() || !enabled().length) { return; }
+  let st;
+  try { st = await haStates(); } catch (e) { return; }
+  for (const x of enabled()) {
+    if (!st[x.ent] || DEAD.indexOf(st[x.ent].state) >= 0) { mark(x.ent, false); continue; }
+    const a = alive[x.ent];
+    if (!a || !a.at || Date.now() - a.at >= WARM_MS - 5000) { probe(x.ent, true).catch(() => {}); }
+  }
+}
+function start() { setTimeout(warm, 8000); setInterval(warm, WARM_MS); }
 
 // Список для страницы: сохранённые камеры (в т.ч. пропавшие из HA — missing, их можно удалить),
 // затем остальные camera.* из HA; живые выше. Повторы одной камеры от разных интеграций не склеиваются:
@@ -97,4 +124,4 @@ function frame(ent) {
 // Камера по номеру в списке включённых (телевизор знает только номер, не сущность)
 function entOf(i) { const e = enabled()[+i]; return e ? e.ent : null; }
 
-module.exports = { countFor, tvList, pageList, frame, entOf, haReady, fps };
+module.exports = { countFor, tvList, pageList, frame, entOf, haReady, fps, start };
