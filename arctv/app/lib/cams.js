@@ -12,6 +12,12 @@ const TOKEN = () => process.env.SUPERVISOR_TOKEN || process.env.HA_TOKEN || '';
 const DEAD = ['unavailable', 'unknown'];   // такие состояния HA считаем «офлайн»
 
 const cache = {};   // ent → {buf, at, inflight} — последний кадр камеры
+// 1.0.3: «онлайн» — не только по состоянию в HA. Интеграция ONVIF держит камеру в состоянии idle, даже когда
+// камера выключена (Dahua в это время честно unavailable) — плитка писала «онлайн». Теперь живое по состоянию
+// проверяется снимком (/camera_proxy — один кадр, не поток): не пришёл за 6 с — офлайн. Итог помнится минуту,
+// каждый кадр при просмотре его обновляет.
+const alive = {};   // ent → {ok, at, inflight}
+const ALIVE_MS = 60000;
 
 function cfg() { return store.getSettings().CAMS || { fps: 2, items: [] }; }
 function haReady() { return !!TOKEN(); }
@@ -40,10 +46,22 @@ async function haStates() {
   return out;
 }
 
-// Список для телевизора: включённые камеры, онлайн/офлайн
+function mark(ent, ok) { const a = alive[ent] || (alive[ent] = { ok: null, at: 0, inflight: null }); a.ok = ok; a.at = Date.now(); }
+
+// Отдаёт ли камера снимок (помним минуту; проверка одна на всех, кто спросил)
+function probe(ent) {
+  const a = alive[ent] || (alive[ent] = { ok: null, at: 0, inflight: null });
+  if (a.at && Date.now() - a.at < ALIVE_MS) { return Promise.resolve(a.ok); }
+  if (!a.inflight) { a.inflight = frame(ent).then(() => true, () => false).then((ok) => { a.inflight = null; return ok; }); }
+  return a.inflight;
+}
+
+// Список для телевизора: включённые камеры, онлайн/офлайн (по состоянию в HA и снимку)
 async function tvList() {
   const st = await haStates();
-  return enabled().map((x, i) => ({ i, name: x.name, online: !!st[x.ent] && DEAD.indexOf(st[x.ent].state) < 0 }));
+  const list = enabled();
+  const ok = await Promise.all(list.map((x) => (!st[x.ent] || DEAD.indexOf(st[x.ent].state) >= 0 ? Promise.resolve(false) : probe(x.ent))));
+  return list.map((x, i) => ({ i, name: x.name, online: ok[i] }));
 }
 
 // Список для страницы: сохранённые камеры (в т.ч. пропавшие из HA — missing, их можно удалить),
@@ -70,8 +88,8 @@ function frame(ent) {
   if (c.buf && Date.now() - c.at < frameMs() * 0.8) { return Promise.resolve(c.buf); }
   if (!c.inflight) {
     c.inflight = ha('/camera_proxy/' + encodeURIComponent(ent), true)
-      .then((b) => { c.buf = b; c.at = Date.now(); c.inflight = null; return b; })
-      .catch((e) => { c.inflight = null; throw e; });
+      .then((b) => { c.buf = b; c.at = Date.now(); c.inflight = null; mark(ent, true); return b; })
+      .catch((e) => { c.inflight = null; mark(ent, false); throw e; });
   }
   return c.inflight;
 }

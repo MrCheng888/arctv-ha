@@ -1,6 +1,6 @@
 {
   "name": "arctv-server",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Домашний сервер для IPTV-приложения «Наталкин Кинозал» (ArcTV)",
   "main": "server.js",
   "private": true,
